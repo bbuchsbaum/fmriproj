@@ -7,3 +7,5 @@ export(spmat_dense_prod)
 
 export(make_trialwise_X)
 export(build_projector)
+export(adaptive_ridge_projector)
+export(collapse_beta)
