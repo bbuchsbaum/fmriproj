@@ -33,4 +33,6 @@
 #' @importFrom RSpectra svds
 #' @importFrom foreach foreach %dopar%
 #' @importFrom doParallel registerDoParallel
-NULL 
+#' @useDynLib fmriproj, .registration = TRUE
+#' @importFrom Rcpp evalCpp
+NULL

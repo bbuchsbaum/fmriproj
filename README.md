@@ -12,6 +12,11 @@ Projected Multivariate Pattern Analysis for fMRI Data
 
 The package interfaces with `fmrireg` for experimental design modeling and `rMVPA` for multivariate pattern analysis execution.
 
+Core data structures such as `fr_design_matrix` and `fr_projector` provide
+lightweight containers for design matrices and projector components. Low-level
+computations rely on RcppArmadillo helper functions for efficient sparse matrix
+assembly and multiplication.
+
 ## Installation
 
 Since this package depends on `fmrireg` and `rMVPA` which are hosted on GitHub, you'll need to install from GitHub:
