@@ -8,8 +8,8 @@ Okay, here's a potential "ticketed sprint" plan for the `fmriproj` package devel
 
 *   **Ticket FPJ-001:** Create `fmriproj` R package structure (DESCRIPTION, NAMESPACE, R/, src/, tests/).
 *   **Ticket FPJ-002:** Set up Git repository, basic CI (R CMD check).
-*   **Ticket FPJ-003:** Define core data structures/classes (if any specific to `fmriproj` beyond lists/matrices).
-*   **Ticket FPJ-004:** Draft initial RcppArmadillo helper functions for sparse matrix operations (e.g., sparse matrix assembly for `X(θ)`, efficient sparse-dense products for projections).
+*   **Ticket FPJ-003:** Define core data structures/classes (if any specific to `fmriproj` beyond lists/matrices). **(done)**
+*   **Ticket FPJ-004:** Draft initial RcppArmadillo helper functions for sparse matrix operations (e.g., sparse matrix assembly for `X(θ)`, efficient sparse-dense products for projections). **(done)**
 
 **Sprint 1: Layer 1 - Sparse Trialwise Design Matrix `X(θ)`**
 
