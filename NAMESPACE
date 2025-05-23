@@ -5,3 +5,4 @@ export(fr_projector)
 export(make_spmat_triplet)
 export(spmat_dense_prod)
 
+export(make_trialwise_X)
