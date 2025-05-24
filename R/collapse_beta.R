@@ -37,31 +37,22 @@ collapse_beta <- function(Z_sl_raw, N_trials, K_hrf_bases,
   V_sl <- ncol(Z_sl_raw)
   A_sl <- matrix(0, nrow = N_trials, ncol = V_sl)
   w_sl <- NULL
+  Z_arr <- array(Z_sl_raw, dim = c(K_hrf_bases, N_trials, V_sl))
 
   if (method == "rss") {
-    for (n in seq_len(N_trials)) {
-      rows <- ((n - 1) * K_hrf_bases + 1):(n * K_hrf_bases)
-      A_sl[n, ] <- sqrt(colSums(Z_sl_raw[rows, , drop = FALSE]^2))
-    }
+    A_sl <- sqrt(apply(Z_arr^2, c(2, 3), sum))
   } else if (method == "pc") {
-    Z_stack <- matrix(0, nrow = N_trials * V_sl, ncol = K_hrf_bases)
-    for (n in seq_len(N_trials)) {
-      rows <- ((n - 1) * K_hrf_bases + 1):(n * K_hrf_bases)
-      Z_stack[((n - 1) * V_sl + 1):(n * V_sl), ] <- t(Z_sl_raw[rows, , drop = FALSE])
-    }
+    Z_stack <- t(matrix(Z_arr, nrow = K_hrf_bases))
     C_z <- crossprod(Z_stack) / (nrow(Z_stack) - 1)
     eig <- eigen(C_z)
     w_sl <- eig$vectors[, 1]
     w_sl <- w_sl / sqrt(sum(w_sl^2))
-    for (n in seq_len(N_trials)) {
-      rows <- ((n - 1) * K_hrf_bases + 1):(n * K_hrf_bases)
-      A_sl[n, ] <- crossprod(w_sl, Z_sl_raw[rows, , drop = FALSE])
-    }
+    A_sl <- matrix(drop(crossprod(w_sl, matrix(Z_arr, nrow = K_hrf_bases))),
+                   nrow = N_trials, byrow = FALSE)
   } else if (method == "optim") {
     if (is.null(classifier_for_w_optim) || is.null(labels_for_w_optim)) {
       stop("classifier_for_w_optim and labels_for_w_optim must be provided for method='optim'")
     }
-    Z_arr <- array(Z_sl_raw, dim = c(K_hrf_bases, N_trials, V_sl))
     fn_gr <- function(w) {
       A_tmp <- apply(Z_arr, c(2, 3), function(z) sum(z * w))
       res <- classifier_for_w_optim(A_tmp, labels_for_w_optim)
