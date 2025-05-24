@@ -43,6 +43,13 @@ build_design_matrix <- function(event_model,
   modulators <- event_model$modulator
   if (is.null(modulators)) modulators <- rep(1, length(onsets))
 
+  if (length(amplitudes) != length(onsets)) {
+    stop("'amplitudes' must be the same length as 'onsets'")
+  }
+  if (length(modulators) != length(onsets)) {
+    stop("'modulator' must be the same length as 'onsets'")
+  }
+
   if (is.null(hrf_basis_matrix)) {
     if (is.null(hrf_basis_func)) {
       stop("Provide either hrf_basis_matrix or hrf_basis_func")
