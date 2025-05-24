@@ -11,10 +11,14 @@
 #'   `A_sl_train`.
 #' @param method Reduction method. Either "LDA" or "PLS-DA".
 #' @param dims Number of projection dimensions to return.
+#' @param tol Numeric tolerance added to the within-class scatter
+#'   matrix when computing the projection for LDA. Increasing this
+#'   value can help when the scatter matrix is nearly singular.
 #' @return An object with elements `W` (projection matrix) and
 #'   `method`.
 #' @export
-fit_pp <- function(A_sl_train, labels_train, method = "LDA", dims = 2) {
+fit_pp <- function(A_sl_train, labels_train, method = "LDA", dims = 2,
+                   tol = 1e-6) {
   if (!method %in% c("LDA", "PLS-DA")) {
     stop("method must be 'LDA' or 'PLS-DA'")
   }
@@ -36,7 +40,7 @@ fit_pp <- function(A_sl_train, labels_train, method = "LDA", dims = 2) {
       diff <- m_c - overall_mean
       S_B <- S_B + nrow(Xc) * tcrossprod(diff)
     }
-    mat <- tryCatch(solve(S_W + diag(1e-6, V), S_B), error = function(e) NULL)
+    mat <- tryCatch(solve(S_W + diag(tol, V), S_B), error = function(e) NULL)
     if (is.null(mat)) {
       W <- diag(ncol(A_sl_train))
     } else {
