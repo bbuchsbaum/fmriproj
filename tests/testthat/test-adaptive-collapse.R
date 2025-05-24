@@ -109,3 +109,21 @@ test_that("collapse_beta optim works", {
   expect_true(!is.null(res$diag_data$optim_details))
 })
 
+test_that("collapse_beta optim fails with mismatched labels", {
+  N_trials <- 2
+  K <- 2
+  Z_sl_raw <- matrix(c(1, 0,
+                        0, 1), nrow = N_trials * K, byrow = TRUE)
+  labels <- c(1, 0, 1)
+  clf <- function(A, y) {
+    list(loss = 0, grad = matrix(0, nrow = length(y), ncol = ncol(A)))
+  }
+  expect_error(
+    collapse_beta(Z_sl_raw, N_trials, K, method = "optim",
+                  labels_for_w_optim = labels,
+                  classifier_for_w_optim = clf,
+                  optim_w_params = list(maxit = 1)),
+    "length\\(labels_for_w_optim\\) must equal N_trials"
+  )
+})
+
