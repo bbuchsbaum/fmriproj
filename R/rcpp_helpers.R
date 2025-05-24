@@ -1,7 +1,9 @@
 #' Create a sparse matrix from triplet representation
 #'
-#' Wrapper around the C++ function `triplet_to_spmat()` which constructs
-#' an Armadillo sparse matrix from zero-based triplet indices.
+#' Wrapper around the C++ function `triplet_to_spmat_cpp()` which constructs
+#' an Armadillo sparse matrix from triplet indices.
+#'
+#' @note Both `i` and `j` use zero-based indexing.
 #'
 #' @param i Integer vector of row indices (0-based).
 #' @param j Integer vector of column indices (0-based).
@@ -9,6 +11,12 @@
 #' @param nrow Number of rows in the resulting matrix.
 #' @param ncol Number of columns in the resulting matrix.
 #' @return A `dgCMatrix` representing the sparse matrix.
+#'
+#' @examples
+#' i <- c(0L, 1L)
+#' j <- c(0L, 1L)
+#' x <- c(1, 2)
+#' make_spmat_triplet(i, j, x, 2L, 2L)
 #' @export
 make_spmat_triplet <- function(i, j, x, nrow, ncol) {
   .triplet_to_spmat_cpp(as.integer(i), as.integer(j), as.numeric(x),
@@ -22,6 +30,11 @@ make_spmat_triplet <- function(i, j, x, nrow, ncol) {
 #' @param A Sparse matrix (`dgCMatrix`).
 #' @param B Dense matrix.
 #' @return Dense product matrix `A %*% B`.
+#'
+#' @examples
+#' sm <- make_spmat_triplet(c(0L, 1L), c(0L, 1L), c(1, 2), 2L, 2L)
+#' dense <- matrix(1, 2, 2)
+#' spmat_dense_prod(sm, dense)
 #' @export
 spmat_dense_prod <- function(A, B) {
   .spmat_dense_prod_cpp(A, B)
