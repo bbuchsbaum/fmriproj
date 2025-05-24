@@ -12,6 +12,17 @@
 #' @return An object of class \code{fr_design_matrix}.
 #' @export
 fr_design_matrix <- function(X, event_model = NULL, hrf_info = list()) {
+  if (!is.matrix(X) && !inherits(X, "dgCMatrix")) {
+    stop("X must be a base matrix or Matrix::dgCMatrix")
+  }
+  if (!is.null(event_model) &&
+      !is.list(event_model) &&
+      !inherits(event_model, "fmrireg_event_model")) {
+    stop("event_model must be a list or fmrireg_event_model")
+  }
+  if (!is.list(hrf_info)) {
+    stop("hrf_info must be a list")
+  }
   structure(
     list(X = X, event_model = event_model, hrf_info = hrf_info),
     class = "fr_design_matrix"
