@@ -24,7 +24,7 @@ build_projector <- function(X_theta, lambda_global = 0, diagnostics = FALSE) {
 
   if (lambda_global > 0) {
     m <- ncol(R)
-    K_global <- solve(crossprod(R) + diag(lambda_global, m), t(R) %*% Qt)
+    K_global <- solve(crossprod(R) + Matrix::Diagonal(m, lambda_global), t(R) %*% Qt)
   } else {
     K_global <- Qt
   }
