@@ -4,7 +4,7 @@ test_that("adaptive_ridge_projector with method none works", {
   em <- list(onsets = c(0L,2L), n_time = 6L)
   basis <- matrix(c(1,0,0,
                     0,1,0), nrow = 3, byrow = FALSE)
-  X <- make_trialwise_X(em, hrf_basis_matrix = basis)$X
+  X <- build_design_matrix(em, hrf_basis_matrix = basis)$X
   proj <- build_projector(X)
   Y_sl <- matrix(1, nrow = 6, ncol = 2)
   res <- adaptive_ridge_projector(Y_sl, proj, lambda_adaptive_method = "none",
@@ -30,7 +30,7 @@ test_that("adaptive_ridge_projector EB works", {
   em <- list(onsets = c(0L,2L), n_time = 6L)
   basis <- matrix(c(1,0,0,
                     0,1,0), nrow = 3, byrow = FALSE)
-  X_obj <- make_trialwise_X(em, hrf_basis_matrix = basis)
+  X_obj <- build_design_matrix(em, hrf_basis_matrix = basis)
   X <- as.matrix(X_obj$X)
   proj <- build_projector(X)
   Y_sl <- matrix(rnorm(12), nrow = 6, ncol = 2)
@@ -51,7 +51,7 @@ test_that("adaptive_ridge_projector LOOcv_local works", {
   em <- list(onsets = c(0L,2L), n_time = 6L)
   basis <- matrix(c(1,0,0,
                     0,1,0), nrow = 3, byrow = FALSE)
-  X_obj <- make_trialwise_X(em, hrf_basis_matrix = basis)
+  X_obj <- build_design_matrix(em, hrf_basis_matrix = basis)
   X <- as.matrix(X_obj$X)
   proj <- build_projector(X)
   Y_sl <- matrix(rnorm(12), nrow = 6, ncol = 2)

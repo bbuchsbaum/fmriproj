@@ -12,10 +12,12 @@
 #' @export
 combine_projection_diagnostics <- function(x, y) {
   if (is.null(x)) {
+    dl <- list(y$diag_data)
     return(list(results = list(y),
-                diagnostics = list(y$diag_data)))
+                diagnostics = cap_diagnostics(dl)))
   }
   x$results <- c(x$results, list(y))
-  x$diagnostics <- c(x$diagnostics, list(y$diag_data))
+  new_diag <- cap_diagnostics(list(y$diag_data))
+  x$diagnostics <- c(x$diagnostics, new_diag)
   x
 }

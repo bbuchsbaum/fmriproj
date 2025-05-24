@@ -12,11 +12,11 @@
 #'
 #' @section Main Functions:
 #' \describe{
-#'   \item{\code{make_trialwise_X}}{Constructs trial-wise design matrices}
+#'   \item{\code{build_design_matrix}}{Constructs trial-wise design matrices}
 #'   \item{\code{adaptive_ridge_projector}}{Performs adaptive ridge projection}
 #'   \item{\code{collapse_beta}}{Implements beta coefficient collapse strategies}
-#'   \item{\code{mvpa_projected_searchlight}}{Runs projected MVPA searchlight analysis}
-#'   \item{\code{optimize_joint_hrf_mvpa}}{Optimizes HRF parameters for MVPA performance}
+#'   \item{\code{run_projected_searchlight}}{Runs projected MVPA searchlight analysis}
+#'   \item{\code{optimize_hrf_mvpa}}{Optimizes HRF parameters for MVPA performance}
 #' }
 #'
 #' @docType package

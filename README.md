@@ -49,11 +49,11 @@ remotes::install_github("bbuchsbaum/fmriproj")
 
 ## Main Functions
 
-- `make_trialwise_X()`: Constructs trial-wise design matrices
+- `build_design_matrix()`: Constructs trial-wise design matrices
 - `adaptive_ridge_projector()`: Performs adaptive ridge projection
 - `collapse_beta()`: Implements beta coefficient collapse strategies
-- `mvpa_projected_searchlight()`: Runs projected MVPA searchlight analysis
-- `optimize_joint_hrf_mvpa()`: Optimizes HRF parameters for MVPA performance
+- `run_projected_searchlight()`: Runs projected MVPA searchlight analysis
+- `optimize_hrf_mvpa()`: Optimizes HRF parameters for MVPA performance
 
 ## License
 

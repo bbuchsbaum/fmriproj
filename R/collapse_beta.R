@@ -87,10 +87,11 @@ collapse_beta <- function(Z_sl_raw, N_trials, K_hrf_bases,
 
   diag_list <- NULL
   if (diagnostics) {
-    diag_list <- list(method = method, w_sl = w_sl)
+    dl <- list(method = method, w_sl = w_sl)
     if (exists("opt_res")) {
-      diag_list$optim_details <- opt_res
+      dl$optim_details <- opt_res
     }
+    diag_list <- cap_diagnostics(dl)
   }
 
   list(A_sl = A_sl, w_sl = w_sl, diag_data = diag_list)
