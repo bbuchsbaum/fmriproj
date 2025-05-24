@@ -74,6 +74,17 @@ test_that("collapse_beta pc works", {
   expect_equal(res$diag_data$w_sl, res$w_sl)
 })
 
+test_that("collapse_beta pc handles small N_trials", {
+  N_trials <- 1
+  K <- 2
+  Z_sl_raw <- matrix(c(1, 2), nrow = N_trials * K, ncol = 1)
+  expect_warning(res <- collapse_beta(Z_sl_raw, N_trials, K, method = "pc"),
+                 "Not enough")
+  expect_equal(dim(res$A_sl), c(N_trials, 1))
+  expect_true(all(res$A_sl == 0))
+  expect_true(all(res$w_sl == 0))
+})
+
 test_that("collapse_beta optim works", {
   N_trials <- 3
   K <- 2
