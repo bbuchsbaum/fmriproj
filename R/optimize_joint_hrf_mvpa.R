@@ -21,25 +21,29 @@
 #' @return A list with elements `theta_hat`, `optim_details`, and optional
 #'   `diagnostics` containing the optimization trace.
 #' @export
-optimize_joint_hrf_mvpa <- function(theta_init,
-                                    Y,
-                                    event_model,
-                                    inner_cv_fn,
-                                    hrf_basis_func = hrf_basis_spmg3_theta,
-                                    lambda_global = 0,
-                                    lambda_adaptive_method = "none",
-                                    collapse_method = "rss",
-                                    optim_method = "Nelder-Mead",
-                                    diagnostics = FALSE,
-                                    ...) {
+optimize_hrf_mvpa <- function(theta_init,
+                              Y,
+                              event_model,
+                              inner_cv_fn,
+                              hrf_basis_func = hrf_basis_spmg3_theta,
+                              lambda_global = 0,
+                              lambda_adaptive_method = "none",
+                              collapse_method = "rss",
+                              optim_method = "Nelder-Mead",
+                              labels_for_w_optim = NULL,
+                              classifier_for_w_optim = NULL,
+                              optim_w_params = list(),
+                              use_tmb = FALSE,
+                              diagnostics = FALSE,
+                              ...) {
   trace_env <- new.env(parent = emptyenv())
   trace_env$df <- data.frame()
 
   loss_fn_theta <- function(theta) {
-    X_obj <- make_trialwise_X(event_model,
-                              hrf_basis_func = hrf_basis_func,
-                              theta_params = theta,
-                              diagnostics = FALSE)
+    X_obj <- build_design_matrix(event_model,
+                                 hrf_basis_func = hrf_basis_func,
+                                 theta_params = theta,
+                                 diagnostics = FALSE)
     X_theta <- X_obj$X
     proj_comp <- build_projector(X_theta,
                                  lambda_global = lambda_global,
@@ -54,11 +58,16 @@ optimize_joint_hrf_mvpa <- function(theta_init,
     )
     N_trials <- length(event_model$onsets)
     K_hrf <- ncol(as.matrix(X_obj$hrf_info$basis))
-    coll_res <- collapse_beta(proj_res$Z_sl_raw,
-                              N_trials,
-                              K_hrf,
-                              method = collapse_method,
-                              diagnostics = FALSE)
+    coll_res <- collapse_beta(
+      proj_res$Z_sl_raw,
+      N_trials,
+      K_hrf,
+      method = collapse_method,
+      diagnostics = FALSE,
+      labels_for_w_optim = labels_for_w_optim,
+      classifier_for_w_optim = classifier_for_w_optim,
+      optim_w_params = optim_w_params
+    )
     loss <- inner_cv_fn(coll_res$A_sl, ...)
 
     if (isTRUE(diagnostics)) {
@@ -70,18 +79,35 @@ optimize_joint_hrf_mvpa <- function(theta_init,
     loss
   }
 
+  grad_fn <- NULL
+  if (use_tmb && requireNamespace("TMB", quietly = TRUE) &&
+      isTRUE(attr(hrf_basis_func, "tmb_compatible"))) {
+    grad_fn <- function(th) {
+      eps <- 1e-6
+      sapply(seq_along(th), function(i) {
+        th_eps <- th
+        th_eps[i] <- th_eps[i] + eps
+        (loss_fn_theta(th_eps) - loss_fn_theta(th)) / eps
+      })
+    }
+  }
+
   optim_res <- stats::optim(par = theta_init,
                             fn = loss_fn_theta,
+                            gr = grad_fn,
                             method = optim_method)
 
   diag_list <- NULL
   if (diagnostics) {
     colnames(trace_env$df) <- c("loss",
                                paste0("theta", seq_along(theta_init)))
-    diag_list <- list(theta_trace = trace_env$df)
+    dl <- list(theta_trace = trace_env$df)
+    diag_list <- cap_diagnostics(dl)
   }
 
   list(theta_hat = optim_res$par,
        optim_details = optim_res,
        diagnostics = diag_list)
 }
+
+optimize_joint_hrf_mvpa <- optimize_hrf_mvpa

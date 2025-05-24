@@ -4,7 +4,7 @@ test_that("build_projector sparse QR works", {
   em <- list(onsets = c(0L, 2L), n_time = 6L)
   basis <- matrix(c(1,0,0,
                     0,1,0), nrow = 3, byrow = FALSE)
-  X <- make_trialwise_X(em, hrf_basis_matrix = basis)$X
+  X <- build_design_matrix(em, hrf_basis_matrix = basis)$X
   proj <- build_projector(X)
   qr_obj <- qr(X)
   Qt_exp <- t(qr.Q(qr_obj))
@@ -17,7 +17,7 @@ test_that("build_projector applies ridge", {
   em <- list(onsets = c(0L,2L), n_time = 6L)
   basis <- matrix(c(1,0,0,
                     0,1,0), nrow = 3, byrow = FALSE)
-  X <- make_trialwise_X(em, hrf_basis_matrix = basis)$X
+  X <- build_design_matrix(em, hrf_basis_matrix = basis)$X
   lambda <- 0.5
   proj <- build_projector(X, lambda_global = lambda)
   qr_obj <- qr(X)
@@ -30,7 +30,7 @@ test_that("build_projector applies ridge", {
 test_that("build_projector diagnostics", {
   em <- list(onsets = c(0L), n_time = 2L)
   basis <- matrix(1, nrow = 1, ncol = 1)
-  X <- make_trialwise_X(em, hrf_basis_matrix = basis)$X
+  X <- build_design_matrix(em, hrf_basis_matrix = basis)$X
   proj <- build_projector(X, diagnostics = TRUE)
   diag <- attr(proj, "diagnostics")
   expect_true(!is.null(diag))

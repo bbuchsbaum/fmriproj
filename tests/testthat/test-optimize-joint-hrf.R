@@ -1,6 +1,6 @@
-context("optimize_joint_hrf_mvpa")
+context("optimize_hrf_mvpa")
 
-test_that("optimize_joint_hrf_mvpa basic flow", {
+test_that("optimize_hrf_mvpa basic flow", {
   Y <- matrix(1, nrow = 6, ncol = 2)
   em <- list(onsets = c(0L, 2L), n_time = 6L, basis_length = 2L)
   basis_fun <- function(theta, t) {
@@ -9,7 +9,7 @@ test_that("optimize_joint_hrf_mvpa basic flow", {
   inner_fn <- function(A) {
     sum(A)
   }
-  res <- optimize_joint_hrf_mvpa(theta_init = c(1),
+  res <- optimize_hrf_mvpa(theta_init = c(1),
                                  Y = Y,
                                  event_model = em,
                                  inner_cv_fn = inner_fn,

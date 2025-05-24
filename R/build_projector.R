@@ -32,9 +32,10 @@ build_projector <- function(X_theta, lambda_global = 0, diagnostics = FALSE) {
   build_time <- proc.time()["elapsed"] - start_time
   diag_list <- NULL
   if (diagnostics) {
-    diag_list <- list(cond_R = as.numeric(cond_R),
-                      lambda_global_used = lambda_global,
-                      build_time = build_time)
+    dl <- list(cond_R = as.numeric(cond_R),
+               lambda_global_used = lambda_global,
+               build_time = build_time)
+    diag_list <- cap_diagnostics(dl)
   }
 
   out <- fr_projector(Qt, R, K_global)

@@ -1,4 +1,4 @@
-#' Construct trial-wise design matrix
+#' Build trial-wise design matrix
 #'
 #' Creates a trial-wise design matrix by convolving event onsets with an
 #' HRF basis. Either a pre-computed basis matrix can be supplied or a
@@ -20,13 +20,13 @@
 #' @return An object of class `fr_design_matrix` containing the design
 #'   matrix and metadata.
 #' @export
-make_trialwise_X <- function(event_model,
-                             hrf_basis_func = NULL,
-                             theta_params = NULL,
-                             hrf_basis_matrix = NULL,
-                             sparse = TRUE,
-                             max_X_cols = 15000,
-                             diagnostics = FALSE) {
+build_design_matrix <- function(event_model,
+                                hrf_basis_func = NULL,
+                                theta_params = NULL,
+                                hrf_basis_matrix = NULL,
+                                sparse = TRUE,
+                                max_X_cols = 15000,
+                                diagnostics = FALSE) {
   start_time <- proc.time()["elapsed"]
 
   onsets <- event_model$onsets
@@ -55,6 +55,11 @@ make_trialwise_X <- function(event_model,
   }
 
   B <- as.matrix(hrf_basis_matrix)
+  if (nrow(B) > n_time) {
+    warning("HRF basis longer than run length - decimating")
+    idx <- round(seq(1, nrow(B), length.out = n_time))
+    B <- B[idx, , drop = FALSE]
+  }
   L <- nrow(B)
   K <- ncol(B)
 
@@ -93,9 +98,10 @@ make_trialwise_X <- function(event_model,
   diag_list <- NULL
   if (diagnostics) {
     build_time <- proc.time()["elapsed"] - start_time
-    diag_list <- list(X_dims = dim(X_sp),
-                      X_sparsity = length(trip_x) / (n_time * ncol_X),
-                      build_time = build_time)
+    dl <- list(X_dims = dim(X_sp),
+               X_sparsity = length(trip_x) / (n_time * ncol_X),
+               build_time = build_time)
+    diag_list <- cap_diagnostics(dl)
   }
 
   out <- fr_design_matrix(X, event_model = event_model,
@@ -104,3 +110,5 @@ make_trialwise_X <- function(event_model,
   out
 }
 
+
+make_trialwise_X <- build_design_matrix

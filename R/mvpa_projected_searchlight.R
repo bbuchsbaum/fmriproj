@@ -23,21 +23,21 @@
 #'   \code{rMVPA::searchlight}. Otherwise a list containing the prepared
 #'   components and searchlight function.
 #' @export
-mvpa_projected_searchlight <- function(Y,
-                                       event_model,
-                                       hrf_basis_func = NULL,
-                                       theta_params = NULL,
-                                       hrf_basis_matrix = NULL,
-                                       lambda_global = 0,
-                                       lambda_adaptive_method = "none",
-                                       collapse_method = "rss",
-                                       diagnostics = FALSE,
-                                       ...) {
-  X_obj <- make_trialwise_X(event_model,
-                            hrf_basis_func = hrf_basis_func,
-                            theta_params = theta_params,
-                            hrf_basis_matrix = hrf_basis_matrix,
-                            diagnostics = diagnostics)
+run_projected_searchlight <- function(Y,
+                                      event_model,
+                                      hrf_basis_func = NULL,
+                                      theta_params = NULL,
+                                      hrf_basis_matrix = NULL,
+                                      lambda_global = 0,
+                                      lambda_adaptive_method = "none",
+                                      collapse_method = "rss",
+                                      diagnostics = FALSE,
+                                      ...) {
+  X_obj <- build_design_matrix(event_model,
+                               hrf_basis_func = hrf_basis_func,
+                               theta_params = theta_params,
+                               hrf_basis_matrix = hrf_basis_matrix,
+                               diagnostics = diagnostics)
   X_theta <- X_obj$X
   proj_comp <- build_projector(X_theta,
                                lambda_global = lambda_global,
@@ -64,8 +64,9 @@ mvpa_projected_searchlight <- function(Y,
     )
     diag_out <- NULL
     if (diagnostics) {
-      diag_out <- list(lambda_sl = proj_res$diag_data$lambda_sl_chosen,
-                       w_sl = coll_res$w_sl)
+      dl <- list(lambda_sl = proj_res$diag_data$lambda_sl_chosen,
+                 w_sl = coll_res$w_sl)
+      diag_out <- cap_diagnostics(dl)
     }
     list(A_sl = coll_res$A_sl, diag_data = diag_out)
   }
@@ -78,8 +79,9 @@ mvpa_projected_searchlight <- function(Y,
       ...
     )
     if (diagnostics) {
-      attr(res, "diagnostics") <- list(layer1 = attr(X_obj, "diagnostics"),
-                                        layer2 = attr(proj_comp, "diagnostics"))
+      dl <- list(layer1 = attr(X_obj, "diagnostics"),
+                 layer2 = attr(proj_comp, "diagnostics"))
+      attr(res, "diagnostics") <- cap_diagnostics(dl)
     }
     return(res)
   }
@@ -87,8 +89,11 @@ mvpa_projected_searchlight <- function(Y,
   message("rMVPA package not available - returning components for manual use")
   out <- list(FUN = sl_FUN, design = X_obj, projector = proj_comp)
   if (diagnostics) {
-    out$diagnostics <- list(layer1 = attr(X_obj, "diagnostics"),
-                            layer2 = attr(proj_comp, "diagnostics"))
+    dl <- list(layer1 = attr(X_obj, "diagnostics"),
+               layer2 = attr(proj_comp, "diagnostics"))
+    out$diagnostics <- cap_diagnostics(dl)
   }
   out
 }
+
+mvpa_projected_searchlight <- run_projected_searchlight
