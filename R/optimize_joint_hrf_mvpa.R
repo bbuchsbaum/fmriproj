@@ -80,15 +80,20 @@ optimize_hrf_mvpa <- function(theta_init,
   }
 
   grad_fn <- NULL
-  if (use_tmb && requireNamespace("TMB", quietly = TRUE) &&
-      isTRUE(attr(hrf_basis_func, "tmb_compatible"))) {
-    grad_fn <- function(th) {
-      eps <- 1e-6
-      sapply(seq_along(th), function(i) {
-        th_eps <- th
-        th_eps[i] <- th_eps[i] + eps
-        (loss_fn_theta(th_eps) - loss_fn_theta(th)) / eps
-      })
+  if (isTRUE(use_tmb)) {
+    tmb_available <- requireNamespace("TMB", quietly = TRUE)
+    basis_tmb <- isTRUE(attr(hrf_basis_func, "tmb_compatible"))
+    if (tmb_available && basis_tmb) {
+      grad_fn <- function(th) {
+        eps <- 1e-6
+        sapply(seq_along(th), function(i) {
+          th_eps <- th
+          th_eps[i] <- th_eps[i] + eps
+          (loss_fn_theta(th_eps) - loss_fn_theta(th)) / eps
+        })
+      }
+    } else {
+      warning("use_tmb is TRUE but TMB unavailable or basis not tmb_compatible - gradients set to NULL")
     }
   }
 
