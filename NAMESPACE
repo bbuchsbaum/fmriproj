@@ -10,6 +10,8 @@ export(make_trialwise_X)
 export(build_projector)
 export(adaptive_ridge_projector)
 export(collapse_beta)
+export(print.fr_design_matrix)
+export(print.fr_projector)
 
 export(run_projected_searchlight)
 export(mvpa_projected_searchlight)
