@@ -3,8 +3,9 @@
 #' Generates a simple SPMG3-style HRF basis with optional scaling of
 #' the canonical delay and dispersion parameters via `theta`.
 #'
-#' @param theta Numeric vector of length 2 controlling delay and
-#'   dispersion scaling. Defaults to `c(1, 1)`.
+#' @param theta Numeric vector of length 1 or 2 controlling delay and
+#'   dispersion scaling. If of length 1, the same value is used for both
+#'   delay and dispersion. Defaults to `c(1, 1)`.
 #' @param t Numeric vector of time points at which to evaluate the basis.
 #'
 #' @return Matrix with length(t) rows and 3 columns: canonical HRF,
