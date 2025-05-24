@@ -44,15 +44,26 @@ collapse_beta <- function(Z_sl_raw, N_trials, K_hrf_bases,
       A_sl[n, ] <- sqrt(colSums(Z_sl_raw[rows, , drop = FALSE]^2))
     }
   } else if (method == "pc") {
-    Z_stack <- matrix(0, nrow = N_trials * V_sl, ncol = K_hrf_bases)
+    # compute covariance incrementally without constructing a large Z_stack
+    num_obs <- N_trials * V_sl
+    C_z_sum <- matrix(0, nrow = K_hrf_bases, ncol = K_hrf_bases)
     for (n in seq_len(N_trials)) {
       rows <- ((n - 1) * K_hrf_bases + 1):(n * K_hrf_bases)
-      Z_stack[((n - 1) * V_sl + 1):(n * V_sl), ] <- t(Z_sl_raw[rows, , drop = FALSE])
+      Z_n <- Z_sl_raw[rows, , drop = FALSE]
+      C_z_sum <- C_z_sum + Z_n %*% t(Z_n)
     }
-    C_z <- crossprod(Z_stack) / (nrow(Z_stack) - 1)
-    eig <- eigen(C_z)
-    w_sl <- eig$vectors[, 1]
-    w_sl <- w_sl / sqrt(sum(w_sl^2))
+
+    if (num_obs <= 1) {
+      warning("Not enough observations to compute covariance; returning zeros")
+      C_z <- matrix(0, nrow = K_hrf_bases, ncol = K_hrf_bases)
+      w_sl <- rep(0, K_hrf_bases)
+    } else {
+      C_z <- C_z_sum / (num_obs - 1)
+      eig <- eigen(C_z, symmetric = TRUE)
+      w_sl <- eig$vectors[, 1]
+      w_sl <- w_sl / sqrt(sum(w_sl^2))
+    }
+
     for (n in seq_len(N_trials)) {
       rows <- ((n - 1) * K_hrf_bases + 1):(n * K_hrf_bases)
       A_sl[n, ] <- crossprod(w_sl, Z_sl_raw[rows, , drop = FALSE])
