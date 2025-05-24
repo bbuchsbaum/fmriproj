@@ -16,6 +16,8 @@
 #' @param collapse_method Collapse method for `collapse_beta`.
 #' @param optim_method Optimization method for `stats::optim`.
 #' @param diagnostics Logical; return optimization trace.
+#' @param use_fd_grad Logical; compute gradient using finite differences if
+#'   `TMB` is installed and `hrf_basis_func` is marked as TMB compatible.
 #' @param ... Additional arguments passed to `inner_cv_fn`.
 #'
 #' @return A list with elements `theta_hat`, `optim_details`, and optional
@@ -33,7 +35,7 @@ optimize_hrf_mvpa <- function(theta_init,
                               labels_for_w_optim = NULL,
                               classifier_for_w_optim = NULL,
                               optim_w_params = list(),
-                              use_tmb = FALSE,
+                              use_fd_grad = FALSE,
                               diagnostics = FALSE,
                               ...) {
   trace_env <- new.env(parent = emptyenv())
@@ -80,15 +82,19 @@ optimize_hrf_mvpa <- function(theta_init,
   }
 
   grad_fn <- NULL
-  if (use_tmb && requireNamespace("TMB", quietly = TRUE) &&
-      isTRUE(attr(hrf_basis_func, "tmb_compatible"))) {
-    grad_fn <- function(th) {
-      eps <- 1e-6
-      sapply(seq_along(th), function(i) {
-        th_eps <- th
-        th_eps[i] <- th_eps[i] + eps
-        (loss_fn_theta(th_eps) - loss_fn_theta(th)) / eps
-      })
+  if (use_fd_grad) {
+    if (requireNamespace("TMB", quietly = TRUE) &&
+        isTRUE(attr(hrf_basis_func, "tmb_compatible"))) {
+      grad_fn <- function(th) {
+        eps <- 1e-6
+        sapply(seq_along(th), function(i) {
+          th_eps <- th
+          th_eps[i] <- th_eps[i] + eps
+          (loss_fn_theta(th_eps) - loss_fn_theta(th)) / eps
+        })
+      }
+    } else {
+      warning("use_fd_grad is TRUE but TMB or hrf_basis_func compatibility is missing")
     }
   }
 
