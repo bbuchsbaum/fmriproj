@@ -9,7 +9,7 @@
 #' @param theta_init Initial values for the HRF parameters.
 #' @param Y BOLD data matrix (time points x voxels).
 #' @param event_model Event model list passed to `make_trialwise_X`.
-#' @param inner_cv_fn Function taking `A_sl` and returning a numeric loss.
+#' @param inner_cv_fn Function taking `A_sl` and returning a numeric scalar loss.
 #' @param hrf_basis_func HRF basis generating function.
 #' @param lambda_global Global ridge penalty.
 #' @param lambda_adaptive_method Method passed to `adaptive_ridge_projector`.
@@ -69,6 +69,9 @@ optimize_hrf_mvpa <- function(theta_init,
       optim_w_params = optim_w_params
     )
     loss <- inner_cv_fn(coll_res$A_sl, ...)
+    if (!is.numeric(loss) || length(loss) != 1 || !is.finite(loss)) {
+      stop("`inner_cv_fn` must return a finite numeric scalar 'loss'.", call. = FALSE)
+    }
 
     if (isTRUE(diagnostics)) {
       row <- c(loss = loss,
