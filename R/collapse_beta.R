@@ -82,10 +82,11 @@ collapse_beta <- function(Z_sl_raw, N_trials, K_hrf_bases,
       }, numeric(1))
       list(value = res$loss, grad = grad_w)
     }
+    cached <- make_cached_fn_gr(fn_gr)
     if (is.null(optim_w_params$maxit)) optim_w_params$maxit <- 5
     opt_res <- stats::optim(par = rep(1 / sqrt(K_hrf_bases), K_hrf_bases),
-                            fn = function(w) fn_gr(w)$value,
-                            gr = function(w) fn_gr(w)$grad,
+                            fn = cached$fn,
+                            gr = cached$gr,
                             method = "L-BFGS-B",
                             control = optim_w_params)
     w_sl <- opt_res$par
@@ -106,4 +107,36 @@ collapse_beta <- function(Z_sl_raw, N_trials, K_hrf_bases,
   }
 
   list(A_sl = A_sl, w_sl = w_sl, diag_data = diag_list)
+}
+
+#' Create cached fn and gr wrappers
+#'
+#' Given a function that returns value and gradient as a list with elements
+#' `value` and `grad`, return list of `fn` and `gr` functions that cache the
+#' result for the most recent parameter vector `w`.
+#'
+#' @param fn_gr Function taking `w` and returning list with `value` and `grad`.
+#' @keywords internal
+make_cached_fn_gr <- function(fn_gr) {
+  env <- new.env(parent = emptyenv())
+  env$w <- NULL
+  env$res <- NULL
+
+  fn <- function(w) {
+    if (is.null(env$w) || !isTRUE(all.equal(env$w, w))) {
+      env$res <- fn_gr(w)
+      env$w <- w
+    }
+    env$res$value
+  }
+
+  gr <- function(w) {
+    if (is.null(env$w) || !isTRUE(all.equal(env$w, w))) {
+      env$res <- fn_gr(w)
+      env$w <- w
+    }
+    env$res$grad
+  }
+
+  list(fn = fn, gr = gr, env = env)
 }
