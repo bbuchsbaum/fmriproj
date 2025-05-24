@@ -30,6 +30,23 @@ fr_design_matrix <- function(X, event_model = NULL, hrf_info = list()) {
 #' @return An object of class \code{fr_projector}.
 #' @export
 fr_projector <- function(Qt, R, K_global = NULL) {
+  if (!is.matrix(Qt)) {
+    stop("Qt must be a matrix")
+  }
+  if (!is.matrix(R)) {
+    stop("R must be a matrix")
+  }
+  if (nrow(Qt) != ncol(R)) {
+    stop("nrow(Qt) must equal ncol(R)")
+  }
+  if (!is.null(K_global)) {
+    if (!is.matrix(K_global)) {
+      stop("K_global must be a matrix")
+    }
+    if (!all(dim(K_global) == dim(Qt))) {
+      stop("K_global must have same dimensions as Qt")
+    }
+  }
   structure(
     list(Qt = Qt, R = R, K_global = K_global),
     class = "fr_projector"
