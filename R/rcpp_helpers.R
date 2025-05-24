@@ -11,6 +11,14 @@
 #' @return A `dgCMatrix` representing the sparse matrix.
 #' @export
 make_spmat_triplet <- function(i, j, x, nrow, ncol) {
+  stopifnot(length(i) == length(j), length(i) == length(x))
+  if (anyNA(i) || anyNA(j) || anyNA(x))
+    stop("Indices and values must not contain NA")
+  if (any(i < 0) || any(j < 0))
+    stop("Indices must be non-negative")
+  if (any(i >= nrow) || any(j >= ncol))
+    stop("Indices out of range")
+
   .triplet_to_spmat_cpp(as.integer(i), as.integer(j), as.numeric(x),
                         as.integer(nrow), as.integer(ncol))
 }
@@ -24,5 +32,12 @@ make_spmat_triplet <- function(i, j, x, nrow, ncol) {
 #' @return Dense product matrix `A %*% B`.
 #' @export
 spmat_dense_prod <- function(A, B) {
+  if (!inherits(A, "dgCMatrix"))
+    stop("A must be a 'dgCMatrix'")
+  if (!is.matrix(B))
+    stop("B must be a matrix")
+  if (ncol(A) != nrow(B))
+    stop("Non-conformable matrices: ncol(A) != nrow(B)")
+
   .spmat_dense_prod_cpp(A, B)
 }
