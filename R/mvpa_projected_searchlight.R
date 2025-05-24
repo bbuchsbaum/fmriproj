@@ -64,8 +64,17 @@ run_projected_searchlight <- function(Y,
     )
     diag_out <- NULL
     if (diagnostics) {
-      dl <- list(lambda_sl = proj_res$diag_data$lambda_sl_chosen,
-                 w_sl = coll_res$w_sl)
+      dl <- list()
+      lambda_val <- NA
+      if (!is.null(proj_res$diag_data)) {
+        if (!is.null(proj_res$diag_data$lambda_sl_chosen)) {
+          lambda_val <- proj_res$diag_data$lambda_sl_chosen
+        }
+      }
+      dl$lambda_sl <- lambda_val
+      if (!is.null(coll_res$w_sl)) {
+        dl$w_sl <- coll_res$w_sl
+      }
       diag_out <- cap_diagnostics(dl)
     }
     list(A_sl = coll_res$A_sl, diag_data = diag_out)
