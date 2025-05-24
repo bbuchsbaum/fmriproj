@@ -50,7 +50,7 @@ collapse_beta <- function(Z_sl_raw, N_trials, K_hrf_bases,
       Z_stack[((n - 1) * V_sl + 1):(n * V_sl), ] <- t(Z_sl_raw[rows, , drop = FALSE])
     }
     C_z <- crossprod(Z_stack) / (nrow(Z_stack) - 1)
-    eig <- eigen(C_z)
+    eig <- eigen(C_z, symmetric = TRUE)
     w_sl <- eig$vectors[, 1]
     w_sl <- w_sl / sqrt(sum(w_sl^2))
     for (n in seq_len(N_trials)) {

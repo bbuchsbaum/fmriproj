@@ -74,6 +74,15 @@ test_that("collapse_beta pc works", {
   expect_equal(res$diag_data$w_sl, res$w_sl)
 })
 
+test_that("collapse_beta pc returns real eigenvectors", {
+  N_trials <- 2
+  K <- 2
+  Z_sl_raw <- matrix(c(1, 2, 3, 4), nrow = N_trials * K, ncol = 1)
+  res <- collapse_beta(Z_sl_raw, N_trials, K, method = "pc")
+  expect_false(is.complex(res$w_sl))
+  expect_equal(Im(res$w_sl), rep(0, K))
+})
+
 test_that("collapse_beta optim works", {
   N_trials <- 3
   K <- 2
