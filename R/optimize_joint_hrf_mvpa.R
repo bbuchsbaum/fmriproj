@@ -83,11 +83,12 @@ optimize_hrf_mvpa <- function(theta_init,
   if (use_tmb && requireNamespace("TMB", quietly = TRUE) &&
       isTRUE(attr(hrf_basis_func, "tmb_compatible"))) {
     grad_fn <- function(th) {
+      base_loss <- loss_fn_theta(th)
       eps <- 1e-6
       sapply(seq_along(th), function(i) {
         th_eps <- th
         th_eps[i] <- th_eps[i] + eps
-        (loss_fn_theta(th_eps) - loss_fn_theta(th)) / eps
+        (loss_fn_theta(th_eps) - base_loss) / eps
       })
     }
   }
