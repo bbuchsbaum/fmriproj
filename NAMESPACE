@@ -2,6 +2,8 @@ useDynLib(fmriproj, .registration=TRUE)
 importFrom(Rcpp, evalCpp)
 export(fr_design_matrix)
 export(fr_projector)
+export(is.fr_design_matrix)
+export(is.fr_projector)
 export(make_spmat_triplet)
 export(spmat_dense_prod)
 

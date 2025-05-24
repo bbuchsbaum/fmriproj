@@ -63,3 +63,29 @@ fr_projector <- function(Qt, R, K_global = NULL) {
     class = "fr_projector"
   )
 }
+
+#' Check for `fr_design_matrix` object
+#'
+#' Convenience function to test whether an object was created by
+#' `fr_design_matrix`.
+#'
+#' @param x Object to test.
+#'
+#' @return `TRUE` if `x` inherits from `fr_design_matrix`.
+#' @export
+is.fr_design_matrix <- function(x) {
+  inherits(x, "fr_design_matrix")
+}
+
+#' Check for `fr_projector` object
+#'
+#' Convenience function to test whether an object was created by
+#' `fr_projector`.
+#'
+#' @param x Object to test.
+#'
+#' @return `TRUE` if `x` inherits from `fr_projector`.
+#' @export
+is.fr_projector <- function(x) {
+  inherits(x, "fr_projector")
+}
