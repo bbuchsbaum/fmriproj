@@ -4,9 +4,10 @@
 #' HRF basis. Either a pre-computed basis matrix can be supplied or a
 #' basis function with parameters.
 #'
-#' @param event_model List describing events. Requires `onsets` (integer
-#'   indices) and `n_time` (number of time points). Optional `amplitudes`
-#'   and `modulator` vectors must be the same length as `onsets`.
+#' @param event_model List describing events. Requires `onsets`, a numeric vector
+#'   of event onset times in **seconds** since the start of the run (time 0), and
+#'   `n_time` (number of time points). Optional `amplitudes` and `modulator`
+#'   vectors must be the same length as `onsets`.
 #' @param hrf_basis_func Optional function generating an HRF basis matrix
 #'   as `hrf_basis_func(theta_params, time_vector)`.
 #' @param theta_params Optional parameters passed to `hrf_basis_func`.
