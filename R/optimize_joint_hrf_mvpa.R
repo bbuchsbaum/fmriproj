@@ -53,7 +53,7 @@ optimize_hrf_mvpa <- function(theta_init,
       proj_comp,
       lambda_adaptive_method = lambda_adaptive_method,
       lambda_floor_global = lambda_global,
-      X_theta_for_EB_residuals = as.matrix(X_theta),
+      X_theta_for_EB_residuals = X_theta,
       diagnostics = FALSE
     )
     N_trials <- length(event_model$onsets)

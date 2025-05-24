@@ -12,7 +12,8 @@
 #' @param lambda_floor_global Minimum ridge penalty to apply.
 #' @param X_theta_for_EB_residuals Optional design matrix `X(θ)` used for
 #'   computing residuals when `lambda_adaptive_method = "EB"` or when
-#'   cross-validating local lambda.
+#'   cross-validating local lambda. Can be a dense matrix or a sparse
+#'   `Matrix::dgCMatrix`.
 #' @param diagnostics Logical; return diagnostic information.
 #' @return A list with elements:
 #'   \item{Z_sl_raw}{Projected coefficients ((N*K) x V_sl).}
