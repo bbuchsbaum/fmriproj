@@ -13,3 +13,11 @@ test_that("run_projected_searchlight returns FUN and components when rMVPA missi
   expect_equal(dim(sl_res$A_sl), c(length(em$onsets), ncol(Y)))
   expect_true(!is.null(sl_res$diag_data))
 })
+
+test_that("run_projected_searchlight errors when Y rows mismatch", {
+  em <- list(onsets = c(0L), n_time = 6L)
+  basis <- matrix(1, nrow = 1, ncol = 1)
+  Y <- matrix(1, nrow = 5, ncol = 2)
+  expect_error(run_projected_searchlight(Y, em, hrf_basis_matrix = basis),
+               "nrow(Y) must match event_model\$n_time")
+})

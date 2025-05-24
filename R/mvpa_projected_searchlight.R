@@ -33,6 +33,9 @@ run_projected_searchlight <- function(Y,
                                       collapse_method = "rss",
                                       diagnostics = FALSE,
                                       ...) {
+  if (nrow(Y) != event_model$n_time) {
+    stop("nrow(Y) must match event_model$n_time")
+  }
   X_obj <- build_design_matrix(event_model,
                                hrf_basis_func = hrf_basis_func,
                                theta_params = theta_params,
