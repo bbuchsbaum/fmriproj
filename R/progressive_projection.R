@@ -60,6 +60,16 @@ fit_pp <- function(A_sl_train, labels_train, method = "LDA", dims = 2) {
 #' @return Matrix of projected data.
 #' @export
 predict_pp <- function(pp_model, A_sl_new) {
-  A_sl_new %*% pp_model$W
+  if (is.null(pp_model$W) || !is.matrix(pp_model$W)) {
+    stop("pp_model must contain a matrix component 'W'")
+  }
+  if (!is.numeric(A_sl_new)) {
+    stop("A_sl_new must be numeric")
+  }
+  if (ncol(A_sl_new) != nrow(pp_model$W)) {
+    stop("Non-conformable matrices: ncol(A_sl_new) = ", ncol(A_sl_new),
+         " but nrow(pp_model$W) = ", nrow(pp_model$W))
+  }
+  (A_sl_new %*% pp_model$W)[, , drop = FALSE]
 }
 
