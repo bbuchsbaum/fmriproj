@@ -9,3 +9,7 @@ export(make_trialwise_X)
 export(build_projector)
 export(adaptive_ridge_projector)
 export(collapse_beta)
+
+export(mvpa_projected_searchlight)
+export(combine_projection_diagnostics)
+export(explain_projection_results)
