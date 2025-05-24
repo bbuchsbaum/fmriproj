@@ -74,3 +74,27 @@ test_that("collapse_beta pc works", {
   expect_equal(res$diag_data$w_sl, res$w_sl)
 })
 
+test_that("collapse_beta optim works", {
+  N_trials <- 3
+  K <- 2
+  Z_sl_raw <- matrix(c(1,0,
+                        0,1,
+                        1,0), nrow = N_trials*K, byrow = TRUE)
+  labels <- c(1,0,1)
+  clf <- function(A, y) {
+    pred <- A[,1]
+    loss <- sum((pred - y)^2)
+    grad <- matrix(2*(pred - y), nrow = length(y), ncol = ncol(A))
+    list(loss = loss, grad = grad)
+  }
+  res <- collapse_beta(Z_sl_raw, N_trials, K, method = "optim",
+                       labels_for_w_optim = labels,
+                       classifier_for_w_optim = clf,
+                       optim_w_params = list(maxit = 20),
+                       diagnostics = TRUE)
+  expect_equal(dim(res$A_sl), c(N_trials, 1))
+  expect_true(abs(res$w_sl[1] - 1) < 1e-3)
+  expect_true(abs(res$w_sl[2]) < 1e-3)
+  expect_true(!is.null(res$diag_data$optim_details))
+})
+

@@ -1,24 +1,33 @@
 #' Collapse Projected Betas Across HRF Bases
 #'
 #' Collapses the raw projected coefficients `Z_sl_raw` into trial-wise
-#' feature patterns. Supports the default root-sum-square (`method = "rss"`)
-#' collapse and an SNR-optimal principal component (`method = "pc"`).
+#' feature patterns. Supports the default root-sum-square (`method = "rss"`),
+#' an SNR-optimal principal component (`method = "pc"`), and optional
+#' supervised optimization of the collapse weights (`method = "optim"`).
 #'
 #' @param Z_sl_raw Matrix of raw projected coefficients with
 #'   `(N_trials * K_hrf_bases)` rows and `V_sl` columns.
 #' @param N_trials Number of trials.
 #' @param K_hrf_bases Number of HRF basis functions used.
-#' @param method Collapse method. Either "rss" or "pc".
+#' @param method Collapse method. One of "rss", "pc", or "optim".
 #' @param diagnostics Logical; return diagnostic information.
+#' @param labels_for_w_optim Trial labels used when `method = "optim"`.
+#' @param classifier_for_w_optim Function returning loss and gradient given
+#'   `A_sl` and labels when `method = "optim"`.
+#' @param optim_w_params List of controls passed to `stats::optim` when
+#'   `method = "optim"`.
 #' @return A list with elements:
 #'   \item{A_sl}{Collapsed trial pattern matrix `N_trials x V_sl`.}
 #'   \item{w_sl}{Collapse weights (NULL for "rss").}
 #'   \item{diag_data}{Optional diagnostics.}
 #' @export
 collapse_beta <- function(Z_sl_raw, N_trials, K_hrf_bases,
-                          method = "rss", diagnostics = FALSE) {
-  if (!method %in% c("rss", "pc")) {
-    stop("method must be either 'rss' or 'pc'")
+                          method = "rss", diagnostics = FALSE,
+                          labels_for_w_optim = NULL,
+                          classifier_for_w_optim = NULL,
+                          optim_w_params = list()) {
+  if (!method %in% c("rss", "pc", "optim")) {
+    stop("method must be either 'rss', 'pc', or 'optim'")
   }
 
   if (nrow(Z_sl_raw) != N_trials * K_hrf_bases) {
@@ -48,11 +57,40 @@ collapse_beta <- function(Z_sl_raw, N_trials, K_hrf_bases,
       rows <- ((n - 1) * K_hrf_bases + 1):(n * K_hrf_bases)
       A_sl[n, ] <- crossprod(w_sl, Z_sl_raw[rows, , drop = FALSE])
     }
+  } else if (method == "optim") {
+    if (is.null(classifier_for_w_optim) || is.null(labels_for_w_optim)) {
+      stop("classifier_for_w_optim and labels_for_w_optim must be provided for method='optim'")
+    }
+    Z_arr <- array(Z_sl_raw, dim = c(K_hrf_bases, N_trials, V_sl))
+    fn_gr <- function(w) {
+      A_tmp <- apply(Z_arr, c(2, 3), function(z) sum(z * w))
+      res <- classifier_for_w_optim(A_tmp, labels_for_w_optim)
+      grad_A <- res$grad
+      grad_w <- vapply(seq_along(w), function(j) {
+        sum(Z_arr[j, , ] * grad_A)
+      }, numeric(1))
+      list(value = res$loss, grad = grad_w)
+    }
+    if (is.null(optim_w_params$maxit)) optim_w_params$maxit <- 5
+    opt_res <- stats::optim(par = rep(1 / sqrt(K_hrf_bases), K_hrf_bases),
+                            fn = function(w) fn_gr(w)$value,
+                            gr = function(w) fn_gr(w)$grad,
+                            method = "L-BFGS-B",
+                            control = optim_w_params)
+    w_sl <- opt_res$par
+    w_sl <- w_sl / sqrt(sum(w_sl^2))
+    for (n in seq_len(N_trials)) {
+      rows <- ((n - 1) * K_hrf_bases + 1):(n * K_hrf_bases)
+      A_sl[n, ] <- crossprod(w_sl, Z_sl_raw[rows, , drop = FALSE])
+    }
   }
 
   diag_list <- NULL
   if (diagnostics) {
     diag_list <- list(method = method, w_sl = w_sl)
+    if (exists("opt_res")) {
+      diag_list$optim_details <- opt_res
+    }
   }
 
   list(A_sl = A_sl, w_sl = w_sl, diag_data = diag_list)
