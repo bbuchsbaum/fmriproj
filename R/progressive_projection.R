@@ -46,7 +46,7 @@ fit_pp <- function(A_sl_train, labels_train, method = "LDA", dims = 2,
     } else {
       eig <- eigen(mat)
       idx <- order(Re(eig$values), decreasing = TRUE)
-      W <- Re(eig$vectors[, idx[seq_len(min(dims, ncol(eig$vectors)))]])
+      W <- Re(eig$vectors[, idx[seq_len(min(dims, ncol(eig$vectors)))], drop = FALSE])
     }
   } else { # PLS-DA
     Y_ind <- model.matrix(~ labels_train - 1)
