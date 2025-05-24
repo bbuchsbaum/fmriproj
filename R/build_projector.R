@@ -17,7 +17,7 @@ build_projector <- function(X_theta, lambda_global = 0, diagnostics = FALSE) {
   Qt <- t(Matrix::qr.Q(qr_obj))
   R <- Matrix::qr.R(qr_obj)
 
-  cond_R <- kappa(R)
+  cond_R <- 1 / Matrix::rcond(R)
   if (is.finite(cond_R) && cond_R > 1e6) {
     warning("High collinearity detected in design matrix: cond(R) > 1e6")
   }
