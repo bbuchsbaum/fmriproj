@@ -15,9 +15,10 @@
 #' @param lambda_adaptive_method Method passed to `adaptive_ridge_projector`.
 #' @param collapse_method Collapse method for `collapse_beta`.
 #' @param optim_method Optimization method for `stats::optim`.
-#' @param diagnostics Logical; return optimization trace.
-#' @param use_fd_grad Logical; compute gradient using finite differences when
-#'   `TRUE`.
+#' @param diagnostics Logical; return optimization trace
+#' @param use_fd_grad Logical; compute gradient using finite differences.
+#'   An optional TMB-based implementation can be added, but there is no
+#'   requirement for TMB.
 #' @param ... Additional arguments passed to `inner_cv_fn`.
 #'
 #' @return A list with elements `theta_hat`, `optim_details`, and optional
