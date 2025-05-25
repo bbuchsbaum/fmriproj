@@ -55,6 +55,12 @@ remotes::install_github("bbuchsbaum/fmriproj")
 - `run_projected_searchlight()`: Runs projected MVPA searchlight analysis
 - `optimize_hrf_mvpa()`: Optimizes HRF parameters for MVPA performance
 
+### Gradient computation
+
+`optimize_hrf_mvpa()` uses finite-difference gradients by default. A future
+release may optionally integrate [TMB](https://github.com/kaskr/adcomp) for
+analytic gradients, but there is currently **no TMB requirement**.
+
 ## License
 
 GPL-3 
