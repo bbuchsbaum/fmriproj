@@ -8,7 +8,8 @@
 #' @param Z_sl_raw Matrix of raw projected coefficients with
 #'   `(N_trials * K_hrf_bases)` rows and `V_sl` columns.
 #' @param N_trials Number of trials.
-#' @param K_hrf_bases Number of HRF basis functions used.
+#' @param K_hrf_bases Number of HRF basis functions used. Defaults to
+#'   `nrow(Z_sl_raw) / N_trials`.
 #' @param method Collapse method. One of "rss", "pc", or "optim".
 #' @param diagnostics Logical; return diagnostic information.
 #' @param labels_for_w_optim Trial labels used when `method = "optim"`.
@@ -18,67 +19,70 @@
 #'   `method = "optim"`.
 #' @return A list with elements:
 #'   \item{A_sl}{Collapsed trial pattern matrix `N_trials x V_sl`.}
-#'   \item{w_sl}{Collapse weights (NULL for "rss").}
+#'   \item{w_sl}{Collapse weights used for combining HRF bases.}
 #'   \item{diag_data}{Optional diagnostics.}
 #' @export
-collapse_beta <- function(Z_sl_raw, N_trials, K_hrf_bases,
-                          method = "rss", diagnostics = FALSE,
+collapse_beta <- function(Z_sl_raw, N_trials,
+                          K_hrf_bases = nrow(Z_sl_raw) / N_trials,
+                          method = c("rss", "pc", "optim"),
+                          diagnostics = FALSE,
                           labels_for_w_optim = NULL,
                           classifier_for_w_optim = NULL,
                           optim_w_params = list()) {
-  if (!method %in% c("rss", "pc", "optim")) {
-    stop("method must be either 'rss', 'pc', or 'optim'")
-  }
 
-  stopifnot(nrow(Z_sl_raw) == N_trials * K_hrf_bases)
+  method <- match.arg(method)
+  stopifnot(N_trials > 0,
+            K_hrf_bases > 0,
+            nrow(Z_sl_raw) == N_trials * K_hrf_bases)
+
 
   V_sl <- ncol(Z_sl_raw)
-  A_sl <- matrix(0, nrow = N_trials, ncol = V_sl)
-  w_sl <- NULL
-  Z_arr <- array(Z_sl_raw, dim = c(K_hrf_bases, N_trials, V_sl))
+  Zmat <- matrix(Z_sl_raw, K_hrf_bases, N_trials * V_sl, byrow = FALSE)
+  A_vec <- numeric(N_trials * V_sl)
+  w_sl <- rep(1 / sqrt(K_hrf_bases), K_hrf_bases)
 
   if (method == "rss") {
-    A_sl <- sqrt(apply(Z_arr^2, c(2, 3), sum))
+    A_vec <- sqrt(colSums(Zmat^2))
   } else if (method == "pc") {
-    # compute covariance incrementally without constructing a large Z_stack
     num_obs <- N_trials * V_sl
-    C_z_sum <- matrix(0, nrow = K_hrf_bases, ncol = K_hrf_bases)
-    for (n in seq_len(N_trials)) {
-      rows <- ((n - 1) * K_hrf_bases + 1):(n * K_hrf_bases)
-      Z_n <- Z_sl_raw[rows, , drop = FALSE]
-      C_z_sum <- C_z_sum + Z_n %*% t(Z_n)
-    }
-
     if (num_obs <= 1) {
       warning("Not enough observations to compute covariance; returning zeros")
-      C_z <- matrix(0, nrow = K_hrf_bases, ncol = K_hrf_bases)
       w_sl <- rep(0, K_hrf_bases)
+      A_vec <- rep(0, num_obs)
     } else {
-      C_z <- C_z_sum / (num_obs - 1)
-      eig <- eigen(C_z, symmetric = TRUE)
-      w_sl <- eig$vectors[, 1]
-      w_sl <- w_sl / sqrt(sum(w_sl^2))
-    }
-
-    for (n in seq_len(N_trials)) {
-      rows <- ((n - 1) * K_hrf_bases + 1):(n * K_hrf_bases)
-      A_sl[n, ] <- crossprod(w_sl, Z_sl_raw[rows, , drop = FALSE])
+      C_z <- tcrossprod(Zmat) / (num_obs - 1)
+      eig <- tryCatch(eigen(C_z, symmetric = TRUE), error = function(e) NULL)
+      if (is.null(eig)) {
+        warning("PCA failed; falling back to rss")
+        w_sl <- rep(1 / sqrt(K_hrf_bases), K_hrf_bases)
+        A_vec <- sqrt(colSums(Zmat^2))
+      } else {
+        w_sl <- eig$vectors[, 1]
+        w_sl <- w_sl / sqrt(sum(w_sl^2) + 1e-12)
+        A_vec <- c(drop(w_sl %*% Zmat))
+      }
     }
   } else if (method == "optim") {
     if (is.null(classifier_for_w_optim) || is.null(labels_for_w_optim)) {
       stop("classifier_for_w_optim and labels_for_w_optim must be provided for method='optim'")
     }
+
     stopifnot(length(labels_for_w_optim) == N_trials)
     Z_arr <- array(Z_sl_raw, dim = c(K_hrf_bases, N_trials, V_sl))
-    fn_gr <- function(w) {
-      A_tmp <- apply(Z_arr, c(2, 3), function(z) sum(z * w))
-      res <- classifier_for_w_optim(A_tmp, labels_for_w_optim)
-      grad_A <- res$grad
-      grad_w <- vapply(seq_along(w), function(j) {
-        sum(Z_arr[j, , ] * grad_A)
-      }, numeric(1))
-      list(value = res$loss, grad = grad_w)
+
+    if (length(labels_for_w_optim) != N_trials) {
+      stop("length(labels_for_w_optim) must equal N_trials")
     }
+
+    fn_gr <- function(w) {
+      A_tmp_vec <- drop(w %*% Zmat)
+      dim(A_tmp_vec) <- c(N_trials, V_sl)
+      res <- classifier_for_w_optim(A_tmp_vec, labels_for_w_optim)
+      grad_A_vec <- c(res$grad)
+      grad_w <- Zmat %*% grad_A_vec
+      list(value = res$loss, grad = as.numeric(grad_w))
+    }
+
     cached <- make_cached_fn_gr(fn_gr)
     if (is.null(optim_w_params$maxit)) optim_w_params$maxit <- 5
     opt_res <- stats::optim(par = rep(1 / sqrt(K_hrf_bases), K_hrf_bases),
@@ -87,13 +91,11 @@ collapse_beta <- function(Z_sl_raw, N_trials, K_hrf_bases,
                             method = "L-BFGS-B",
                             control = optim_w_params)
     w_sl <- opt_res$par
-    w_sl <- w_sl / sqrt(sum(w_sl^2))
-    for (n in seq_len(N_trials)) {
-      rows <- ((n - 1) * K_hrf_bases + 1):(n * K_hrf_bases)
-      A_sl[n, ] <- crossprod(w_sl, Z_sl_raw[rows, , drop = FALSE])
-    }
+    w_sl <- w_sl / sqrt(sum(w_sl^2) + 1e-12)
+    A_vec <- drop(w_sl %*% Zmat)
   }
 
+  dim(A_vec) <- c(N_trials, V_sl)
   diag_list <- NULL
   if (diagnostics) {
     dl <- list(method = method, w_sl = w_sl)
@@ -103,7 +105,7 @@ collapse_beta <- function(Z_sl_raw, N_trials, K_hrf_bases,
     diag_list <- cap_diagnostics(dl)
   }
 
-  list(A_sl = A_sl, w_sl = w_sl, diag_data = diag_list)
+  list(A_sl = A_vec, w_sl = w_sl, diag_data = diag_list)
 }
 
 #' Create cached fn and gr wrappers

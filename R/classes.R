@@ -37,10 +37,12 @@ fr_design_matrix <- function(X, event_model = NULL, hrf_info = list()) {
 #' @param Qt Transposed Q matrix from a thin QR decomposition.
 #' @param R  Upper triangular R matrix from QR.
 #' @param K_global Optional global projector matrix.
+#' @param RtR Optional precomputed \eqn{R^\top R} matrix.
+#' @param tRQt Optional precomputed \eqn{R^\top Q^\top} matrix.
 #'
 #' @return An object of class \code{fr_projector}.
 #' @export
-fr_projector <- function(Qt, R, K_global = NULL) {
+fr_projector <- function(Qt, R, K_global = NULL, RtR = NULL, tRQt = NULL) {
   if (!is.matrix(Qt)) {
     stop("Qt must be a matrix")
   }
@@ -54,8 +56,24 @@ fr_projector <- function(Qt, R, K_global = NULL) {
     }
     stopifnot(all(dim(K_global) == dim(Qt)))
   }
+  if (!is.null(RtR)) {
+    if (!is.matrix(RtR)) {
+      stop("RtR must be a matrix")
+    }
+    if (!all(dim(RtR) == c(ncol(R), ncol(R)))) {
+      stop("RtR must be square with dimension equal to ncol(R)")
+    }
+  }
+  if (!is.null(tRQt)) {
+    if (!is.matrix(tRQt)) {
+      stop("tRQt must be a matrix")
+    }
+    if (!all(dim(tRQt) == dim(Qt))) {
+      stop("tRQt must have same dimensions as Qt")
+    }
+  }
   structure(
-    list(Qt = Qt, R = R, K_global = K_global),
+    list(Qt = Qt, R = R, K_global = K_global, RtR = RtR, tRQt = tRQt),
     class = "fr_projector"
   )
 }
