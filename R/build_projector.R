@@ -8,7 +8,9 @@
 #' @param diagnostics Logical; attach timing and condition number.
 #'
 #' @return An object of class \code{fr_projector} containing \code{Qt},
-#'   \code{R} and \code{K_global} if requested.
+#'   \code{R} and \code{K_global}. When \code{lambda_global} is zero
+#'   \code{K_global} is the (pseudo-)inverse of \code{R} times
+#'   \code{Qt}; otherwise ridge regularization is applied.
 #' @export
 build_projector <- function(X_theta, lambda_global = 0, diagnostics = FALSE) {
   start_time <- proc.time()["elapsed"]
@@ -26,7 +28,10 @@ build_projector <- function(X_theta, lambda_global = 0, diagnostics = FALSE) {
     m <- ncol(R)
     K_global <- solve(crossprod(R) + diag(lambda_global, m), t(R) %*% Qt)
   } else {
-    K_global <- Qt
+    K_global <- tryCatch(
+      solve(R, Qt),
+      error = function(e) MASS::ginv(R) %*% Qt
+    )
   }
 
   build_time <- proc.time()["elapsed"] - start_time
