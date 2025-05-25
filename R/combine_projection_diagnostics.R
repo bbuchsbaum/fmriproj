@@ -16,7 +16,12 @@ combine_projection_diagnostics <- function(x, y) {
     return(list(results = list(y),
                 diagnostics = list(diag_val)))
   }
-  x$results[[length(x$results) + 1L]] <- y
-  x$diagnostics[[length(x$diagnostics) + 1L]] <- diag_val
+
+  x$results[[length(x$results) + 1]] <- y
+  new_diag <- cap_diagnostics(list(y$diag_data))
+  if (!is.null(new_diag)) {
+    x$diagnostics[[length(x$diagnostics) + 1]] <- diag_val
+  }
+
   x
 }
