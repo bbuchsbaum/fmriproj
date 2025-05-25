@@ -105,7 +105,9 @@ adaptive_ridge_projector <- function(Y_sl,
                           })
         Qt_tr <- t(qr.Q(qr_tr))
         R_tr <- qr.R(qr_tr)
-        beta_tr <- tryCatch(solve(crossprod(R_tr) + diag(lam, ncol(R_tr)),
+        lhs <- crossprod(R_tr)
+        diag(lhs) <- diag(lhs) + lam
+        beta_tr <- tryCatch(solve(lhs,
                                   t(R_tr) %*% Qt_tr %*% Y_sl[idx_tr, , drop = FALSE]),
                             error = function(e) {
                               stop("Ridge solve failed for lambda ", lam,
@@ -124,7 +126,9 @@ adaptive_ridge_projector <- function(Y_sl,
 
   m <- ncol(R)
   RtR <- crossprod(R)
-  K_sl <- tryCatch(solve(RtR + diag(lambda_eff, m), t(R) %*% Qt),
+  lhs <- RtR
+  diag(lhs) <- diag(lhs) + lambda_eff
+  K_sl <- tryCatch(solve(lhs, t(R) %*% Qt),
                    error = function(e) {
                      stop("Ridge solve failed with lambda ", lambda_eff, ": ", e$message)
                    })
