@@ -9,7 +9,7 @@
 #' @param theta_init Initial values for the HRF parameters.
 #' @param Y BOLD data matrix (time points x voxels).
 #' @param event_model Event model list passed to `make_trialwise_X`.
-#' @param inner_cv_fn Function taking `A_sl` and returning a numeric loss.
+#' @param inner_cv_fn Function taking `A_sl` and returning a numeric scalar loss.
 #' @param hrf_basis_func HRF basis generating function.
 #' @param lambda_global Global ridge penalty.
 #' @param lambda_adaptive_method Method passed to `adaptive_ridge_projector`.
@@ -39,7 +39,7 @@ optimize_hrf_mvpa <- function(theta_init,
                               diagnostics = FALSE,
                               ...) {
   trace_env <- new.env(parent = emptyenv())
-  trace_env$df <- data.frame()
+  trace_env$rows <- list()
 
   loss_fn_theta <- function(theta) {
     X_obj <- build_design_matrix(event_model,
@@ -71,12 +71,15 @@ optimize_hrf_mvpa <- function(theta_init,
       optim_w_params = optim_w_params
     )
     loss <- inner_cv_fn(coll_res$A_sl, ...)
+    if (!is.numeric(loss) || length(loss) != 1 || !is.finite(loss)) {
+      stop("`inner_cv_fn` must return a finite numeric scalar 'loss'.", call. = FALSE)
+    }
 
     if (isTRUE(diagnostics)) {
       row <- c(loss = loss,
                setNames(as.numeric(theta),
                         paste0("theta", seq_along(theta))))
-      trace_env$df <- rbind(trace_env$df, row)
+      trace_env$rows[[length(trace_env$rows) + 1]] <- row
     }
     loss
   }
@@ -105,9 +108,10 @@ optimize_hrf_mvpa <- function(theta_init,
 
   diag_list <- NULL
   if (diagnostics) {
-    colnames(trace_env$df) <- c("loss",
-                               paste0("theta", seq_along(theta_init)))
-    dl <- list(theta_trace = trace_env$df)
+    trace_df <- as.data.frame(do.call(rbind, trace_env$rows))
+    colnames(trace_df) <- c("loss",
+                           paste0("theta", seq_along(theta_init)))
+    dl <- list(theta_trace = trace_df)
     diag_list <- cap_diagnostics(dl)
   }
 

@@ -11,20 +11,28 @@
 #'   \code{R} and \code{K_global} if requested.
 #' @export
 build_projector <- function(X_theta, lambda_global = 0, diagnostics = FALSE) {
+  if (!inherits(X_theta, c("matrix", "Matrix"))) {
+    stop("X_theta must be a matrix or Matrix")
+  }
+  if (!is.numeric(lambda_global) || length(lambda_global) != 1 ||
+      lambda_global < 0) {
+    stop("lambda_global must be a single non-negative numeric value")
+  }
+
   start_time <- proc.time()["elapsed"]
 
   qr_obj <- Matrix::qr(X_theta)
   Qt <- t(Matrix::qr.Q(qr_obj))
   R <- Matrix::qr.R(qr_obj)
 
-  cond_R <- kappa(R)
+  cond_R <- 1 / Matrix::rcond(R)
   if (is.finite(cond_R) && cond_R > 1e6) {
     warning("High collinearity detected in design matrix: cond(R) > 1e6")
   }
 
   if (lambda_global > 0) {
     m <- ncol(R)
-    K_global <- solve(crossprod(R) + diag(lambda_global, m), t(R) %*% Qt)
+    K_global <- solve(crossprod(R) + Matrix::Diagonal(m, lambda_global), t(R) %*% Qt)
   } else {
     K_global <- Qt
   }
