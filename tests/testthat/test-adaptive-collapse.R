@@ -45,8 +45,12 @@ test_that("adaptive_ridge_projector EB works", {
   expect_true(!is.null(diag))
   expect_equal(dim(diag$K_sl), dim(proj$K_global))
   expect_true(is.finite(diag$lambda_sl_chosen))
-  expect_true(is.finite(diag$s_n_sq))
-  expect_true(is.finite(diag$s_b_sq))
+  expect_true(is.numeric(diag$s_n_sq_vec))
+  expect_length(diag$s_n_sq_vec, ncol(Y_sl))
+  expect_true(all(is.finite(diag$s_n_sq_vec)))
+  expect_true(is.numeric(diag$s_b_sq_vec))
+  expect_length(diag$s_b_sq_vec, ncol(Y_sl))
+  expect_true(all(is.finite(diag$s_b_sq_vec)))
 })
 
 test_that("adaptive_ridge_projector LOOcv_local works", {
@@ -65,6 +69,21 @@ test_that("adaptive_ridge_projector LOOcv_local works", {
   expect_equal(dim(res$Z_sl_raw), c(ncol(X), 2L))
   expect_equal(dim(res$diag_data$K_sl), dim(proj$K_global))
   expect_true(is.finite(res$diag_data$lambda_sl_chosen))
+})
+
+test_that("adaptive_ridge_projector works without precomputed matrices", {
+  em <- list(onsets = c(0L,2L), n_time = 6L)
+  basis <- matrix(c(1,0,0,
+                    0,1,0), nrow = 3, byrow = FALSE)
+  X <- build_design_matrix(em, hrf_basis_matrix = basis)$X
+  proj_full <- build_projector(X)
+  proj_legacy <- fr_projector(proj_full$Qt, proj_full$R, proj_full$K_global)
+  Y_sl <- matrix(1, nrow = 6, ncol = 1)
+  res1 <- adaptive_ridge_projector(Y_sl, proj_full,
+                                   lambda_floor_global = 0.5)
+  res2 <- adaptive_ridge_projector(Y_sl, proj_legacy,
+                                   lambda_floor_global = 0.5)
+  expect_equal(res1$Z_sl_raw, res2$Z_sl_raw)
 })
 
 test_that("collapse_beta pc works", {

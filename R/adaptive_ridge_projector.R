@@ -36,6 +36,8 @@ adaptive_ridge_projector <- function(Y_sl,
                                      diagnostics = FALSE) {
   Qt <- projector_components$Qt
   R <- projector_components$R
+  RtR <- projector_components$RtR
+  tRQt <- projector_components$tRQt
 
   if (!is.numeric(lambda_floor_global) || length(lambda_floor_global) != 1 ||
       is.na(lambda_floor_global) || lambda_floor_global < 0) {
@@ -60,8 +62,8 @@ adaptive_ridge_projector <- function(Y_sl,
   }
 
   lambda_sl_raw <- NA
-  s_n_sq <- NA
-  s_b_sq <- NA
+  s_n_sq_vec <- NA
+  s_b_sq_vec <- NA
 
   if (lambda_adaptive_method == "none") {
     lambda_eff <- lambda_floor_global
@@ -72,11 +74,10 @@ adaptive_ridge_projector <- function(Y_sl,
     beta_ols <- solve(R, Qt %*% Y_sl)
     resid_mat <- Y_sl - X_theta_for_EB_residuals %*% beta_ols
     T_obs <- nrow(Y_sl)
-    V_sl <- ncol(Y_sl)
     m <- ncol(R)
-    s_n_sq <- sum(resid_mat^2) / ((T_obs - m) * V_sl)
-    s_b_sq <- sum(beta_ols^2) / (m * V_sl)
-    lambda_sl_raw <- s_n_sq / s_b_sq
+    s_n_sq_vec <- colSums(resid_mat^2) / (T_obs - m)
+    s_b_sq_vec <- colSums(beta_ols^2) / m
+    lambda_sl_raw <- median(s_n_sq_vec / s_b_sq_vec, na.rm = TRUE)
     lambda_eff <- max(lambda_floor_global, lambda_sl_raw)
   } else if (lambda_adaptive_method == "LOOcv_local") {
     if (is.null(X_theta_for_EB_residuals)) {
@@ -106,7 +107,9 @@ adaptive_ridge_projector <- function(Y_sl,
                           })
         Qt_tr <- t(qr.Q(qr_tr))
         R_tr <- qr.R(qr_tr)
-        beta_tr <- tryCatch(solve(crossprod(R_tr) + diag(lam, ncol(R_tr)),
+        lhs <- crossprod(R_tr)
+        diag(lhs) <- diag(lhs) + lam
+        beta_tr <- tryCatch(solve(lhs,
                                   t(R_tr) %*% Qt_tr %*% Y_sl[idx_tr, , drop = FALSE]),
                             error = function(e) {
                               stop("Ridge solve failed for lambda ", lam,
@@ -124,11 +127,20 @@ adaptive_ridge_projector <- function(Y_sl,
   }
 
   m <- ncol(R)
+
   RtR <- crossprod(R)
-  K_sl <- tryCatch(solve(RtR + diag(lambda_eff, m), t(R) %*% Qt),
-                   error = function(e) {
-                     stop("Ridge solve failed with lambda ", lambda_eff, ": ", e$message)
-                   })
+  lhs <- RtR
+  diag(lhs) <- diag(lhs) + lambda_eff
+
+  tRQt <- t(R) %*% Qt
+  K_sl <- tryCatch({
+    cho <- chol(lhs)
+    backsolve(cho, backsolve(cho, tRQt, transpose = TRUE))
+  },
+  error = function(e) {
+    stop("Ridge solve failed with lambda ", lambda_eff, ": ", e$message)
+  })
+
 
   Z_sl_raw <- K_sl %*% Y_sl
 
@@ -139,6 +151,7 @@ adaptive_ridge_projector <- function(Y_sl,
                s_n_sq = s_n_sq,
                s_b_sq = s_b_sq,
                K_sl = K_sl)
+
     diag_list <- cap_diagnostics(dl)
   }
 
