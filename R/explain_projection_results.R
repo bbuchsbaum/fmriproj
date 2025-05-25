@@ -12,9 +12,10 @@
 #' @param hrf_basis_matrix Optional HRF basis matrix used for computing an
 #'   effective HRF from the average `w_sl`.
 #'
-#' @return A list with `lambda_map`, `w_maps` (or `NULL` if unavailable) and an
-#'   optional `effective_hrf` vector. In a full implementation these would be
-#'   `neuroim2` objects.
+#' @return A list with `lambda_map`, `w_maps` (or `NULL` if all `w_sl` are
+#'   missing) and an optional `effective_hrf` vector. Missing `w_sl`
+#'   values are represented as `NA` in the corresponding map entries. In a
+#'   full implementation these would be `neuroim2` objects.
 #' @export
 explain_projection_results <- function(sl_results, mask_dims, hrf_basis_matrix = NULL) {
   if (is.null(sl_results$diagnostics)) {
@@ -28,15 +29,20 @@ explain_projection_results <- function(sl_results, mask_dims, hrf_basis_matrix =
   w_list <- lapply(sl_results$diagnostics, function(d) d$w_sl)
   w_maps <- NULL
   effective_hrf <- NULL
-  if (!any(vapply(w_list, is.null, logical(1)))) {
-    K <- length(w_list[[1]])
-    w_mat <- vapply(w_list, identity, numeric(K))
+  has_w <- !vapply(w_list, is.null, logical(1))
+  if (any(has_w)) {
+    first_w <- which(has_w)[1]
+    K <- length(w_list[[first_w]])
+    w_mat <- matrix(NA_real_, nrow = K, ncol = length(w_list))
+    for (i in which(has_w)) {
+      w_mat[, i] <- w_list[[i]]
+    }
     w_maps <- vector("list", K)
     for (k in seq_len(K)) {
       w_maps[[k]] <- array(w_mat[k, ], dim = mask_dims)
     }
     if (!is.null(hrf_basis_matrix)) {
-      w_mean <- rowMeans(w_mat)
+      w_mean <- rowMeans(w_mat, na.rm = TRUE)
       effective_hrf <- as.numeric(hrf_basis_matrix %*% w_mean)
     }
   }
