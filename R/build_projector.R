@@ -8,9 +8,10 @@
 #' @param diagnostics Logical; attach timing and condition number.
 #'
 #' @return An object of class \code{fr_projector} containing \code{Qt},
-#'   \code{R} and \code{K_global}. When \code{lambda_global} is zero
-#'   \code{K_global} is the (pseudo-)inverse of \code{R} times
-#'   \code{Qt}; otherwise ridge regularization is applied.
+#'   \code{R}, \code{K_global}, and precomputed matrices \code{RtR} and
+#'   \code{tRQt}. When \code{lambda_global} is zero \code{K_global} is the
+#'   (pseudo-)inverse of \code{R} times \code{Qt}; otherwise ridge
+#'   regularization is applied.
 #' @export
 build_projector <- function(X_theta, lambda_global = 0, diagnostics = FALSE) {
   if (!inherits(X_theta, c("matrix", "Matrix"))) {
@@ -26,6 +27,8 @@ build_projector <- function(X_theta, lambda_global = 0, diagnostics = FALSE) {
   qr_obj <- Matrix::qr(X_theta)
   Qt <- t(Matrix::qr.Q(qr_obj))
   R <- Matrix::qr.R(qr_obj)
+  RtR <- crossprod(R)
+  tRQt <- t(R) %*% Qt
 
   cond_R <- 1 / Matrix::rcond(R)
   if (is.finite(cond_R) && cond_R > 1e6) {
@@ -34,7 +37,7 @@ build_projector <- function(X_theta, lambda_global = 0, diagnostics = FALSE) {
 
   if (lambda_global > 0) {
     m <- ncol(R)
-    K_global <- solve(crossprod(R) + Matrix::Diagonal(m, lambda_global), t(R) %*% Qt)
+    K_global <- solve(RtR + Matrix::Diagonal(m, lambda_global), tRQt)
   } else {
     K_global <- tryCatch(
       solve(R, Qt),
@@ -51,7 +54,7 @@ build_projector <- function(X_theta, lambda_global = 0, diagnostics = FALSE) {
     diag_list <- cap_diagnostics(dl)
   }
 
-  out <- fr_projector(Qt, R, K_global)
+  out <- fr_projector(Qt, R, K_global, RtR = RtR, tRQt = tRQt)
   attr(out, "diagnostics") <- diag_list
   out
 }

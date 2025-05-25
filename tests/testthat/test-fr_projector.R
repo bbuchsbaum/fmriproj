@@ -22,3 +22,13 @@ test_that("fr_projector validates K_global dimensions", {
   proj <- fr_projector(Qt, R, Kg_good)
   expect_s3_class(proj, "fr_projector")
 })
+
+test_that("fr_projector accepts optional RtR and tRQt", {
+  Qt <- matrix(0, nrow = 2, ncol = 3)
+  R <- matrix(0, nrow = 2, ncol = 2)
+  RtR <- crossprod(R)
+  tRQt <- t(R) %*% Qt
+  proj <- fr_projector(Qt, R, RtR = RtR, tRQt = tRQt)
+  expect_equal(proj$RtR, RtR)
+  expect_equal(proj$tRQt, tRQt)
+})
