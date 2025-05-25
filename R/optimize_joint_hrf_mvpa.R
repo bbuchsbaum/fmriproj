@@ -36,9 +36,15 @@ optimize_hrf_mvpa <- function(theta_init,
                               classifier_for_w_optim = NULL,
                               optim_w_params = list(),
                               use_fd_grad = FALSE,
+                              use_tmb = NULL,
                               diagnostics = FALSE,
                               ...) {
   trace_env <- new.env(parent = emptyenv())
+
+  if (!is.null(use_tmb)) {
+    warning("`use_tmb` is deprecated; use `use_fd_grad` instead.", call. = FALSE)
+    use_fd_grad <- use_tmb
+  }
 
   trace_env$df <- data.frame()
   N_trials <- length(event_model$onsets)
