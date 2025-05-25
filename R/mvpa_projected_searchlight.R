@@ -39,6 +39,10 @@ run_projected_searchlight <- function(Y,
                                hrf_basis_matrix = hrf_basis_matrix,
                                diagnostics = diagnostics)
   X_theta <- X_obj$X
+  X_theta_dense <- NULL
+  if (lambda_adaptive_method %in% c("EB", "LOOcv_local")) {
+    X_theta_dense <- as.matrix(X_theta)
+  }
   proj_comp <- build_projector(X_theta,
                                lambda_global = lambda_global,
                                diagnostics = diagnostics)
@@ -52,7 +56,7 @@ run_projected_searchlight <- function(Y,
       proj_comp,
       lambda_adaptive_method = lambda_adaptive_method,
       lambda_floor_global = lambda_global,
-      X_theta_for_EB_residuals = as.matrix(X_theta),
+      X_theta_for_EB_residuals = X_theta_dense,
       diagnostics = diagnostics
     )
     coll_res <- collapse_beta(

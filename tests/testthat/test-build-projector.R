@@ -41,3 +41,12 @@ test_that("build_projector warns on high condition number", {
   X <- Matrix::Matrix(matrix(c(1,1,1,1), 2, 2), sparse = TRUE)
   expect_warning(build_projector(X))
 })
+
+test_that("build_projector validates inputs", {
+  expect_error(build_projector(list()), "X_theta must be")
+  X <- matrix(1, nrow = 2, ncol = 2)
+  expect_error(build_projector(X, lambda_global = c(1, 2)),
+               "lambda_global must be")
+  expect_error(build_projector(X, lambda_global = -1),
+               "lambda_global must be")
+})

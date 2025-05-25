@@ -12,6 +12,17 @@
 #' @return An object of class \code{fr_design_matrix}.
 #' @export
 fr_design_matrix <- function(X, event_model = NULL, hrf_info = list()) {
+  if (!is.matrix(X) && !inherits(X, "dgCMatrix")) {
+    stop("X must be a base matrix or Matrix::dgCMatrix")
+  }
+  if (!is.null(event_model) &&
+      !is.list(event_model) &&
+      !inherits(event_model, "fmrireg_event_model")) {
+    stop("event_model must be a list or fmrireg_event_model")
+  }
+  if (!is.list(hrf_info)) {
+    stop("hrf_info must be a list")
+  }
   structure(
     list(X = X, event_model = event_model, hrf_info = hrf_info),
     class = "fr_design_matrix"
@@ -30,8 +41,51 @@ fr_design_matrix <- function(X, event_model = NULL, hrf_info = list()) {
 #' @return An object of class \code{fr_projector}.
 #' @export
 fr_projector <- function(Qt, R, K_global = NULL) {
+  if (!is.matrix(Qt)) {
+    stop("Qt must be a matrix")
+  }
+  if (!is.matrix(R)) {
+    stop("R must be a matrix")
+  }
+  if (nrow(Qt) != ncol(R)) {
+    stop("nrow(Qt) must equal ncol(R)")
+  }
+  if (!is.null(K_global)) {
+    if (!is.matrix(K_global)) {
+      stop("K_global must be a matrix")
+    }
+    if (!all(dim(K_global) == dim(Qt))) {
+      stop("K_global must have same dimensions as Qt")
+    }
+  }
   structure(
     list(Qt = Qt, R = R, K_global = K_global),
     class = "fr_projector"
   )
+}
+
+#' Check for `fr_design_matrix` object
+#'
+#' Convenience function to test whether an object was created by
+#' `fr_design_matrix`.
+#'
+#' @param x Object to test.
+#'
+#' @return `TRUE` if `x` inherits from `fr_design_matrix`.
+#' @export
+is.fr_design_matrix <- function(x) {
+  inherits(x, "fr_design_matrix")
+}
+
+#' Check for `fr_projector` object
+#'
+#' Convenience function to test whether an object was created by
+#' `fr_projector`.
+#'
+#' @param x Object to test.
+#'
+#' @return `TRUE` if `x` inherits from `fr_projector`.
+#' @export
+is.fr_projector <- function(x) {
+  inherits(x, "fr_projector")
 }
