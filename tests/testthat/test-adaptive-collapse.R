@@ -12,6 +12,7 @@ test_that("adaptive_ridge_projector with method none works", {
   expect_equal(dim(res$Z_sl_raw), c(ncol(X), 2L))
   diag <- res$diag_data
   expect_true(!is.null(diag))
+  expect_equal(dim(diag$K_sl), dim(proj$K_global))
   expect_equal(diag$lambda_sl_chosen, 0.5)
 })
 
@@ -42,6 +43,7 @@ test_that("adaptive_ridge_projector EB works", {
   expect_equal(dim(res$Z_sl_raw), c(ncol(X), 2L))
   diag <- res$diag_data
   expect_true(!is.null(diag))
+  expect_equal(dim(diag$K_sl), dim(proj$K_global))
   expect_true(is.finite(diag$lambda_sl_chosen))
   expect_true(is.numeric(diag$s_n_sq_vec))
   expect_length(diag$s_n_sq_vec, ncol(Y_sl))
@@ -65,6 +67,7 @@ test_that("adaptive_ridge_projector LOOcv_local works", {
                                   X_theta_for_EB_residuals = X,
                                   diagnostics = TRUE)
   expect_equal(dim(res$Z_sl_raw), c(ncol(X), 2L))
+  expect_equal(dim(res$diag_data$K_sl), dim(proj$K_global))
   expect_true(is.finite(res$diag_data$lambda_sl_chosen))
 })
 
