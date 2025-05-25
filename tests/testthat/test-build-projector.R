@@ -41,14 +41,16 @@ test_that("build_projector applies ridge", {
   X <- build_design_matrix(em, hrf_basis_matrix = basis)$X
   lambda <- 0.5
   proj <- build_projector(X, lambda_global = lambda)
-  qr_obj <- Matrix::qr(X)
-  Qt <- t(Matrix::qr.Q(qr_obj))
-  R <- Matrix::qr.R(qr_obj)
-  pivot_idx <- tryCatch(qr_obj@q + 1L, error = function(e) NULL)
-  if (!is.null(pivot_idx) && any(pivot_idx != seq_len(ncol(R)))) {
-    R <- R[, order(pivot_idx), drop = FALSE]
-  }
-  K_exp <- solve(crossprod(R) + diag(lambda, ncol(R)), t(R) %*% Qt)
+
+  qr_obj <- qr(X)
+  Qt <- t(qr.Q(qr_obj))
+  R <- qr.R(qr_obj)
+  lhs <- crossprod(R)
+  diag(lhs) <- diag(lhs) + lambda
+  tRQt <- t(R) %*% Qt
+  cho <- chol(lhs)
+  K_exp <- backsolve(cho, backsolve(cho, tRQt, transpose = TRUE))
+
   expect_equal(proj$K_global, K_exp)
 })
 
@@ -76,15 +78,15 @@ test_that("build_projector ridge uses sparse diagonal", {
   X <- build_design_matrix(em, hrf_basis_matrix = basis)$X
   lambda <- 0.5
   proj <- build_projector(X, lambda_global = lambda)
-  qr_obj <- Matrix::qr(X)
-  Qt <- t(Matrix::qr.Q(qr_obj))
-  R <- Matrix::qr.R(qr_obj)
-  pivot_idx <- tryCatch(qr_obj@q + 1L, error = function(e) NULL)
-  if (!is.null(pivot_idx) && any(pivot_idx != seq_len(ncol(R)))) {
-    R <- R[, order(pivot_idx), drop = FALSE]
-  }
-  K_exp <- solve(crossprod(R) + Matrix::Diagonal(ncol(R), lambda),
-                 t(R) %*% Qt)
+
+  qr_obj <- qr(X)
+  Qt <- t(qr.Q(qr_obj))
+  R <- qr.R(qr_obj)
+  lhs <- crossprod(R)
+  diag(lhs) <- diag(lhs) + lambda
+  tRQt <- t(R) %*% Qt
+  cho <- chol(lhs)
+  K_exp <- backsolve(cho, backsolve(cho, tRQt, transpose = TRUE))
   expect_equal(proj$K_global, K_exp)
 })
 

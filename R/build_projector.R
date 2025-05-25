@@ -39,8 +39,12 @@ build_projector <- function(X_theta, lambda_global = 0, diagnostics = FALSE,
   }
 
   if (lambda_global > 0) {
-    m <- ncol(R)
-    K_global <- solve(RtR + Matrix::Diagonal(m, lambda_global), tRQt)
+    RtR <- crossprod(R)
+    diag(RtR) <- diag(RtR) + lambda_global
+    tRQt <- t(R) %*% Qt
+    cho <- chol(RtR)
+    K_global <- backsolve(cho, backsolve(cho, tRQt, transpose = TRUE))
+
   } else {
     K_global <- tryCatch(
       solve(R, Qt),

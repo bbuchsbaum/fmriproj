@@ -124,12 +124,18 @@ adaptive_ridge_projector <- function(Y_sl,
   }
 
   m <- ncol(R)
-  if (is.null(RtR)) RtR <- crossprod(R)
-  if (is.null(tRQt)) tRQt <- t(R) %*% Qt
-  K_sl <- tryCatch(solve(RtR + diag(lambda_eff, m), tRQt),
-                   error = function(e) {
-                     stop("Ridge solve failed with lambda ", lambda_eff, ": ", e$message)
-                   })
+
+  RtR <- crossprod(R)
+  lhs <- RtR
+  diag(lhs) <- diag(lhs) + lambda_eff
+  tRQt <- t(R) %*% Qt
+  K_sl <- tryCatch({
+    cho <- chol(lhs)
+    backsolve(cho, backsolve(cho, tRQt, transpose = TRUE))
+  },
+  error = function(e) {
+    stop("Ridge solve failed with lambda ", lambda_eff, ": ", e$message)
+  })
 
   Z_sl_raw <- K_sl %*% Y_sl
 
