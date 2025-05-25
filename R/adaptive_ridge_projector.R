@@ -35,6 +35,8 @@ adaptive_ridge_projector <- function(Y_sl,
                                      diagnostics = FALSE) {
   Qt <- projector_components$Qt
   R <- projector_components$R
+  RtR <- projector_components$RtR
+  tRQt <- projector_components$tRQt
 
   if (!is.numeric(lambda_floor_global) || length(lambda_floor_global) != 1 ||
       is.na(lambda_floor_global) || lambda_floor_global < 0) {
@@ -123,8 +125,9 @@ adaptive_ridge_projector <- function(Y_sl,
   }
 
   m <- ncol(R)
-  RtR <- crossprod(R)
-  K_sl <- tryCatch(solve(RtR + diag(lambda_eff, m), t(R) %*% Qt),
+  if (is.null(RtR)) RtR <- crossprod(R)
+  if (is.null(tRQt)) tRQt <- t(R) %*% Qt
+  K_sl <- tryCatch(solve(RtR + diag(lambda_eff, m), tRQt),
                    error = function(e) {
                      stop("Ridge solve failed with lambda ", lambda_eff, ": ", e$message)
                    })

@@ -17,6 +17,8 @@ test_that("build_projector sparse QR works", {
   expect_equal(proj$R, R_exp)
   K_exp <- solve(R_exp, Qt_exp)
   expect_equal(proj$K_global, K_exp)
+  expect_equal(as.matrix(proj$RtR), crossprod(R_exp))
+  expect_equal(as.matrix(proj$tRQt), t(R_exp) %*% Qt_exp)
 })
 
 test_that("build_projector can disable pivoting", {
