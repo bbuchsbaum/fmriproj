@@ -39,7 +39,11 @@ optimize_hrf_mvpa <- function(theta_init,
                               diagnostics = FALSE,
                               ...) {
   trace_env <- new.env(parent = emptyenv())
+
+  trace_env$df <- data.frame()
+  N_trials <- length(event_model$onsets)
   trace_env$rows <- list()
+
 
   loss_fn_theta <- function(theta) {
     X_obj <- build_design_matrix(event_model,
@@ -58,7 +62,6 @@ optimize_hrf_mvpa <- function(theta_init,
       X_theta_for_EB_residuals = as.matrix(X_theta),
       diagnostics = FALSE
     )
-    N_trials <- length(event_model$onsets)
     K_hrf <- ncol(as.matrix(X_obj$hrf_info$basis))
     coll_res <- collapse_beta(
       proj_res$Z_sl_raw,
