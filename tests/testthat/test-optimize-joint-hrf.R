@@ -22,12 +22,17 @@ test_that("optimize_hrf_mvpa basic flow", {
   expect_true(nrow(res$diagnostics$theta_trace) >= 1)
 })
 
-test_that("finite-difference gradient runs", {
+
+
+test_that("finite differences run regardless of TMB", {
+
+
   Y <- matrix(1, nrow = 2, ncol = 1)
   em <- list(onsets = c(0L), n_time = 2L, basis_length = 1L)
   basis_fun <- function(theta, t) {
     matrix(theta[1], nrow = length(t), ncol = 1)
   }
+
   res <- optimize_hrf_mvpa(theta_init = c(1),
                            Y = Y,
                            event_model = em,
@@ -36,4 +41,30 @@ test_that("finite-difference gradient runs", {
                            use_fd_grad = TRUE,
                            optim_method = "Nelder-Mead")
   expect_true(is.numeric(res$theta_hat))
+
+
+  expect_silent(
+    optimize_hrf_mvpa(
+      theta_init = c(1),
+      Y = Y,
+      event_model = em,
+      inner_cv_fn = sum,
+      hrf_basis_func = basis_fun,
+      use_fd_grad = TRUE,
+      optim_method = "Nelder-Mead"
+    )
+
+  expect_warning(
+    optimize_hrf_mvpa(theta_init = c(1),
+                       Y = Y,
+                       event_model = em,
+                       inner_cv_fn = sum,
+                       hrf_basis_func = basis_fun,
+                       use_fd_grad = TRUE,
+                       optim_method = "Nelder-Mead"),
+    "gradients set to NULL"
+  )
+
 })
+
+
