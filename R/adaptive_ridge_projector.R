@@ -61,8 +61,8 @@ adaptive_ridge_projector <- function(Y_sl,
   }
 
   lambda_sl_raw <- NA
-  s_n_sq <- NA
-  s_b_sq <- NA
+  s_n_sq_vec <- NA
+  s_b_sq_vec <- NA
 
   if (lambda_adaptive_method == "none") {
     lambda_eff <- lambda_floor_global
@@ -73,11 +73,10 @@ adaptive_ridge_projector <- function(Y_sl,
     beta_ols <- solve(R, Qt %*% Y_sl)
     resid_mat <- Y_sl - X_theta_for_EB_residuals %*% beta_ols
     T_obs <- nrow(Y_sl)
-    V_sl <- ncol(Y_sl)
     m <- ncol(R)
-    s_n_sq <- sum(resid_mat^2) / ((T_obs - m) * V_sl)
-    s_b_sq <- sum(beta_ols^2) / (m * V_sl)
-    lambda_sl_raw <- s_n_sq / s_b_sq
+    s_n_sq_vec <- colSums(resid_mat^2) / (T_obs - m)
+    s_b_sq_vec <- colSums(beta_ols^2) / m
+    lambda_sl_raw <- median(s_n_sq_vec / s_b_sq_vec, na.rm = TRUE)
     lambda_eff <- max(lambda_floor_global, lambda_sl_raw)
   } else if (lambda_adaptive_method == "LOOcv_local") {
     if (is.null(X_theta_for_EB_residuals)) {
@@ -138,8 +137,8 @@ adaptive_ridge_projector <- function(Y_sl,
   if (diagnostics) {
     dl <- list(lambda_sl_chosen = lambda_eff,
                lambda_sl_raw = lambda_sl_raw,
-               s_n_sq = s_n_sq,
-               s_b_sq = s_b_sq)
+               s_n_sq_vec = s_n_sq_vec,
+               s_b_sq_vec = s_b_sq_vec)
     diag_list <- cap_diagnostics(dl)
   }
 
