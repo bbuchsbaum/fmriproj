@@ -25,7 +25,11 @@ test_that("build_projector applies ridge", {
   qr_obj <- qr(X)
   Qt <- t(qr.Q(qr_obj))
   R <- qr.R(qr_obj)
-  K_exp <- solve(crossprod(R) + diag(lambda, ncol(R)), t(R) %*% Qt)
+  lhs <- crossprod(R)
+  diag(lhs) <- diag(lhs) + lambda
+  tRQt <- t(R) %*% Qt
+  cho <- chol(lhs)
+  K_exp <- backsolve(cho, backsolve(cho, tRQt, transpose = TRUE))
   expect_equal(proj$K_global, K_exp)
 })
 
@@ -52,8 +56,11 @@ test_that("build_projector ridge uses sparse diagonal", {
   qr_obj <- qr(X)
   Qt <- t(qr.Q(qr_obj))
   R <- qr.R(qr_obj)
-  K_exp <- solve(crossprod(R) + Matrix::Diagonal(ncol(R), lambda),
-                 t(R) %*% Qt)
+  lhs <- crossprod(R)
+  diag(lhs) <- diag(lhs) + lambda
+  tRQt <- t(R) %*% Qt
+  cho <- chol(lhs)
+  K_exp <- backsolve(cho, backsolve(cho, tRQt, transpose = TRUE))
   expect_equal(proj$K_global, K_exp)
 })
 
