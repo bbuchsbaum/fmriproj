@@ -5,14 +5,33 @@ test_that("build_projector sparse QR works", {
   basis <- matrix(c(1,0,0,
                     0,1,0), nrow = 3, byrow = FALSE)
   X <- build_design_matrix(em, hrf_basis_matrix = basis)$X
-  proj <- build_projector(X)
-  qr_obj <- qr(X)
-  Qt_exp <- t(qr.Q(qr_obj))
-  R_exp <- qr.R(qr_obj)
+  proj <- build_projector(X, pivot = TRUE)
+  qr_obj <- Matrix::qr(X)
+  Qt_exp <- t(Matrix::qr.Q(qr_obj))
+  R_exp <- Matrix::qr.R(qr_obj)
+  pivot_idx <- tryCatch(qr_obj@q + 1L, error = function(e) NULL)
+  if (!is.null(pivot_idx) && any(pivot_idx != seq_len(ncol(R_exp)))) {
+    R_exp <- R_exp[, order(pivot_idx), drop = FALSE]
+  }
   expect_equal(proj$Qt, Qt_exp)
   expect_equal(proj$R, R_exp)
   K_exp <- solve(R_exp, Qt_exp)
   expect_equal(proj$K_global, K_exp)
+  expect_equal(as.matrix(proj$RtR), crossprod(R_exp))
+  expect_equal(as.matrix(proj$tRQt), t(R_exp) %*% Qt_exp)
+})
+
+test_that("build_projector can disable pivoting", {
+  em <- list(onsets = c(0L, 2L), n_time = 6L)
+  basis <- matrix(c(1,0,0,
+                    0,1,0), nrow = 3, byrow = FALSE)
+  X <- build_design_matrix(em, hrf_basis_matrix = basis)$X
+  proj <- build_projector(X, pivot = FALSE)
+  qr_obj <- qr(as.matrix(X))
+  Qt_exp <- t(qr.Q(qr_obj))
+  R_exp <- qr.R(qr_obj)
+  expect_equal(proj$Qt, Qt_exp)
+  expect_equal(proj$R, R_exp)
 })
 
 test_that("build_projector applies ridge", {
@@ -22,6 +41,7 @@ test_that("build_projector applies ridge", {
   X <- build_design_matrix(em, hrf_basis_matrix = basis)$X
   lambda <- 0.5
   proj <- build_projector(X, lambda_global = lambda)
+
   qr_obj <- qr(X)
   Qt <- t(qr.Q(qr_obj))
   R <- qr.R(qr_obj)
@@ -30,6 +50,7 @@ test_that("build_projector applies ridge", {
   tRQt <- t(R) %*% Qt
   cho <- chol(lhs)
   K_exp <- backsolve(cho, backsolve(cho, tRQt, transpose = TRUE))
+
   expect_equal(proj$K_global, K_exp)
 })
 
@@ -39,9 +60,13 @@ test_that("lambda_global 0 returns OLS projector", {
                     0,1,0), nrow = 3, byrow = FALSE)
   X <- build_design_matrix(em, hrf_basis_matrix = basis)$X
   proj <- build_projector(X, lambda_global = 0)
-  qr_obj <- qr(X)
-  Qt <- t(qr.Q(qr_obj))
-  R <- qr.R(qr_obj)
+  qr_obj <- Matrix::qr(X)
+  Qt <- t(Matrix::qr.Q(qr_obj))
+  R <- Matrix::qr.R(qr_obj)
+  pivot_idx <- tryCatch(qr_obj@q + 1L, error = function(e) NULL)
+  if (!is.null(pivot_idx) && any(pivot_idx != seq_len(ncol(R)))) {
+    R <- R[, order(pivot_idx), drop = FALSE]
+  }
   K_exp <- solve(R, Qt)
   expect_equal(proj$K_global, K_exp)
 })
@@ -53,6 +78,7 @@ test_that("build_projector ridge uses sparse diagonal", {
   X <- build_design_matrix(em, hrf_basis_matrix = basis)$X
   lambda <- 0.5
   proj <- build_projector(X, lambda_global = lambda)
+
   qr_obj <- qr(X)
   Qt <- t(qr.Q(qr_obj))
   R <- qr.R(qr_obj)
@@ -84,9 +110,13 @@ test_that("build_projector warns on high condition number", {
 test_that("build_projector uses ginv when R is singular", {
   X <- Matrix::Matrix(matrix(c(1,1,1,1), 2, 2), sparse = TRUE)
   proj <- suppressWarnings(build_projector(X))
-  qr_obj <- qr(as.matrix(X))
-  Qt_exp <- t(qr.Q(qr_obj))
-  R_exp <- qr.R(qr_obj)
+  qr_obj <- Matrix::qr(X)
+  Qt_exp <- t(Matrix::qr.Q(qr_obj))
+  R_exp <- Matrix::qr.R(qr_obj)
+  pivot_idx <- tryCatch(qr_obj@q + 1L, error = function(e) NULL)
+  if (!is.null(pivot_idx) && any(pivot_idx != seq_len(ncol(R_exp)))) {
+    R_exp <- R_exp[, order(pivot_idx), drop = FALSE]
+  }
   K_exp <- MASS::ginv(R_exp) %*% Qt_exp
   expect_equal(proj$K_global, K_exp)
 })

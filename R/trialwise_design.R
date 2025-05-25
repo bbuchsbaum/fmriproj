@@ -77,9 +77,11 @@ build_design_matrix <- function(event_model,
     warning("ncol(X) exceeds max_X_cols")
   }
 
-  trip_i <- integer(0)
-  trip_j <- integer(0)
-  trip_x <- numeric(0)
+  est_nz <- N * K * L
+  trip_i <- integer(est_nz)
+  trip_j <- integer(est_nz)
+  trip_x <- numeric(est_nz)
+  idx <- 1L
 
   for (n in seq_len(N)) {
     onset <- onsets[n]
@@ -88,12 +90,22 @@ build_design_matrix <- function(event_model,
       col_index <- (n - 1) * K + (k - 1)
       rows <- onset + seq_len(L) - 1
       valid <- rows < n_time
-      if (any(valid)) {
-        trip_i <- c(trip_i, rows[valid])
-        trip_j <- c(trip_j, rep(col_index, sum(valid)))
-        trip_x <- c(trip_x, amp * B[valid, k])
+      nv <- sum(valid)
+      if (nv > 0L) {
+        idx_end <- idx + nv - 1L
+        trip_i[idx:idx_end] <- rows[valid]
+        trip_j[idx:idx_end] <- rep(col_index, nv)
+        trip_x[idx:idx_end] <- amp * B[valid, k]
+        idx <- idx_end + 1L
       }
     }
+  }
+
+  final_len <- idx - 1L
+  if (final_len < est_nz) {
+    trip_i <- trip_i[seq_len(final_len)]
+    trip_j <- trip_j[seq_len(final_len)]
+    trip_x <- trip_x[seq_len(final_len)]
   }
 
   X_sp <- make_spmat_triplet(trip_i, trip_j, trip_x, n_time, ncol_X)
