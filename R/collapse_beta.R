@@ -29,10 +29,12 @@ collapse_beta <- function(Z_sl_raw, N_trials,
                           labels_for_w_optim = NULL,
                           classifier_for_w_optim = NULL,
                           optim_w_params = list()) {
+
   method <- match.arg(method)
   stopifnot(N_trials > 0,
             K_hrf_bases > 0,
             nrow(Z_sl_raw) == N_trials * K_hrf_bases)
+
 
   V_sl <- ncol(Z_sl_raw)
   Zmat <- matrix(Z_sl_raw, K_hrf_bases, N_trials * V_sl, byrow = FALSE)
@@ -64,6 +66,10 @@ collapse_beta <- function(Z_sl_raw, N_trials,
     if (is.null(classifier_for_w_optim) || is.null(labels_for_w_optim)) {
       stop("classifier_for_w_optim and labels_for_w_optim must be provided for method='optim'")
     }
+
+    stopifnot(length(labels_for_w_optim) == N_trials)
+    Z_arr <- array(Z_sl_raw, dim = c(K_hrf_bases, N_trials, V_sl))
+
     if (length(labels_for_w_optim) != N_trials) {
       stop("length(labels_for_w_optim) must equal N_trials")
     }

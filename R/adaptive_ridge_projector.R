@@ -44,21 +44,16 @@ adaptive_ridge_projector <- function(Y_sl,
     stop("lambda_floor_global must be a non-negative numeric scalar")
   }
   if (anyNA(Y_sl)) {
-    stop("Y_sl contains missing values")
+    warning("Y_sl contains missing values")
+    return(list(Z_sl_raw = NULL, diag_data = NULL))
   }
-  if (ncol(Qt) != nrow(Y_sl)) {
-    stop("Number of rows of Y_sl must match number of columns of projector Qt")
-  }
+  stopifnot(ncol(Qt) == nrow(Y_sl))
   if (!is.null(X_theta_for_EB_residuals)) {
     if (anyNA(X_theta_for_EB_residuals)) {
       stop("X_theta_for_EB_residuals contains missing values")
     }
-    if (nrow(X_theta_for_EB_residuals) != nrow(Y_sl)) {
-      stop("Rows of X_theta_for_EB_residuals must match Y_sl")
-    }
-    if (ncol(X_theta_for_EB_residuals) != ncol(R)) {
-      stop("Columns of X_theta_for_EB_residuals must match design matrix")
-    }
+    stopifnot(nrow(X_theta_for_EB_residuals) == nrow(Y_sl))
+    stopifnot(ncol(X_theta_for_EB_residuals) == ncol(R))
   }
 
   lambda_sl_raw <- NA
@@ -68,17 +63,27 @@ adaptive_ridge_projector <- function(Y_sl,
   if (lambda_adaptive_method == "none") {
     lambda_eff <- lambda_floor_global
   } else if (lambda_adaptive_method == "EB") {
-    if (is.null(X_theta_for_EB_residuals)) {
-      stop("X_theta_for_EB_residuals must be provided for EB method")
-    }
-    beta_ols <- solve(R, Qt %*% Y_sl)
+  if (is.null(X_theta_for_EB_residuals))
+    stop("X_theta_for_EB_residuals must be provided for EB method")
+
+  T_obs <- nrow(Y_sl)
+  m     <- ncol(R)
+
+  ## not enough timepoints → fall back to floor
+  if (T_obs <= m) {
+    warning("T_obs ≤ number of regressors; skipping EB for this search-light")
+    lambda_eff <- lambda_floor_global
+  } else {
+    ##  OLS, upper-triangular solve
+    beta_ols  <- backsolve(R, Qt %*% Y_sl, upper = TRUE)
     resid_mat <- Y_sl - X_theta_for_EB_residuals %*% beta_ols
-    T_obs <- nrow(Y_sl)
-    m <- ncol(R)
+
+    ## voxel-wise variance estimates
     s_n_sq_vec <- colSums(resid_mat^2) / (T_obs - m)
     s_b_sq_vec <- colSums(beta_ols^2) / m
+
     lambda_sl_raw <- median(s_n_sq_vec / s_b_sq_vec, na.rm = TRUE)
-    lambda_eff <- max(lambda_floor_global, lambda_sl_raw)
+    lambda_eff    <- max(lambda_floor_global, lambda_sl_raw)
   } else if (lambda_adaptive_method == "LOOcv_local") {
     if (is.null(X_theta_for_EB_residuals)) {
       stop("X_theta_for_EB_residuals must be provided for LOOcv_local")
@@ -88,9 +93,7 @@ adaptive_ridge_projector <- function(Y_sl,
     if (is.null(folds_local_cv)) {
       folds <- rep_len(seq_len(min(4L, T_obs)), T_obs)
     } else {
-      if (length(folds_local_cv) != T_obs) {
-        stop("folds_local_cv must have length equal to nrow(Y_sl)")
-      }
+      stopifnot(length(folds_local_cv) == T_obs)
       folds <- folds_local_cv
     }
     lambda_grid <- lambda_grid_local + lambda_floor_global
