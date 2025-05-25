@@ -70,10 +70,7 @@ predict_pp <- function(pp_model, A_sl_new) {
   if (!is.numeric(A_sl_new)) {
     stop("A_sl_new must be numeric")
   }
-  if (ncol(A_sl_new) != nrow(pp_model$W)) {
-    stop("Non-conformable matrices: ncol(A_sl_new) = ", ncol(A_sl_new),
-         " but nrow(pp_model$W) = ", nrow(pp_model$W))
-  }
+  stopifnot(ncol(A_sl_new) == nrow(pp_model$W))
   (A_sl_new %*% pp_model$W)[, , drop = FALSE]
 }
 

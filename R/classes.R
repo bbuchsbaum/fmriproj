@@ -47,16 +47,12 @@ fr_projector <- function(Qt, R, K_global = NULL) {
   if (!is.matrix(R)) {
     stop("R must be a matrix")
   }
-  if (nrow(Qt) != ncol(R)) {
-    stop("nrow(Qt) must equal ncol(R)")
-  }
+  stopifnot(nrow(Qt) == ncol(R))
   if (!is.null(K_global)) {
     if (!is.matrix(K_global)) {
       stop("K_global must be a matrix")
     }
-    if (!all(dim(K_global) == dim(Qt))) {
-      stop("K_global must have same dimensions as Qt")
-    }
+    stopifnot(all(dim(K_global) == dim(Qt)))
   }
   structure(
     list(Qt = Qt, R = R, K_global = K_global),

@@ -30,9 +30,7 @@ collapse_beta <- function(Z_sl_raw, N_trials, K_hrf_bases,
     stop("method must be either 'rss', 'pc', or 'optim'")
   }
 
-  if (nrow(Z_sl_raw) != N_trials * K_hrf_bases) {
-    stop("nrow(Z_sl_raw) must equal N_trials * K_hrf_bases")
-  }
+  stopifnot(nrow(Z_sl_raw) == N_trials * K_hrf_bases)
 
   V_sl <- ncol(Z_sl_raw)
   A_sl <- matrix(0, nrow = N_trials, ncol = V_sl)
@@ -70,9 +68,7 @@ collapse_beta <- function(Z_sl_raw, N_trials, K_hrf_bases,
     if (is.null(classifier_for_w_optim) || is.null(labels_for_w_optim)) {
       stop("classifier_for_w_optim and labels_for_w_optim must be provided for method='optim'")
     }
-    if (length(labels_for_w_optim) != N_trials) {
-      stop("length(labels_for_w_optim) must equal N_trials")
-    }
+    stopifnot(length(labels_for_w_optim) == N_trials)
     Z_arr <- array(Z_sl_raw, dim = c(K_hrf_bases, N_trials, V_sl))
     fn_gr <- function(w) {
       A_tmp <- apply(Z_arr, c(2, 3), function(z) sum(z * w))

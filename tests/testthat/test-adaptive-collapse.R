@@ -122,8 +122,38 @@ test_that("collapse_beta optim fails with mismatched labels", {
     collapse_beta(Z_sl_raw, N_trials, K, method = "optim",
                   labels_for_w_optim = labels,
                   classifier_for_w_optim = clf,
-                  optim_w_params = list(maxit = 1)),
-    "length\\(labels_for_w_optim\\) must equal N_trials"
+                  optim_w_params = list(maxit = 1))
   )
+})
+
+test_that("adaptive_ridge_projector warns on NA input", {
+  em <- list(onsets = c(0L,2L), n_time = 6L)
+  basis <- matrix(c(1,0,0,
+                    0,1,0), nrow = 3, byrow = FALSE)
+  X <- build_design_matrix(em, hrf_basis_matrix = basis)$X
+  proj <- build_projector(X)
+  Y_sl <- matrix(1, nrow = 6, ncol = 2)
+  Y_sl[1,1] <- NA
+  expect_warning(res <- adaptive_ridge_projector(Y_sl, proj), "Y_sl contains")
+  expect_null(res$Z_sl_raw)
+  expect_null(res$diag_data)
+})
+
+test_that("adaptive_ridge_projector skips EB when T_obs <= m", {
+  em <- list(onsets = c(0L), n_time = 1L)
+  basis <- matrix(1, nrow = 1, ncol = 1)
+  X_obj <- build_design_matrix(em, hrf_basis_matrix = basis)
+  X <- as.matrix(X_obj$X)
+  proj <- build_projector(X)
+  Y_sl <- matrix(1, nrow = 1, ncol = 1)
+  expect_warning(res <- adaptive_ridge_projector(Y_sl, proj,
+                                                 lambda_adaptive_method = "EB",
+                                                 lambda_floor_global = 0.5,
+                                                 X_theta_for_EB_residuals = X,
+                                                 diagnostics = TRUE),
+                 "T_obs <= m")
+  expect_equal(res$diag_data$lambda_sl_chosen, 0.5)
+  expect_true(is.na(res$diag_data$s_n_sq))
+  expect_true(is.na(res$diag_data$s_b_sq))
 })
 

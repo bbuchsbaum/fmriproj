@@ -37,10 +37,7 @@ explain_projection_results <- function(sl_results, mask_dims, hrf_basis_matrix =
     }
     if (!is.null(hrf_basis_matrix)) {
       w_mean <- rowMeans(w_mat)
-      if (ncol(hrf_basis_matrix) != length(w_mean)) {
-        stop("Number of columns in hrf_basis_matrix (", ncol(hrf_basis_matrix),
-             ") must match length of collapse weights (", length(w_mean), ")")
-      }
+      stopifnot(ncol(hrf_basis_matrix) == length(w_mean))
       effective_hrf <- as.numeric(hrf_basis_matrix %*% w_mean)
     }
   }
