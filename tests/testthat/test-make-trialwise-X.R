@@ -40,3 +40,17 @@ test_that("long HRF basis is decimated", {
   expect_equal(nrow(res$hrf_info$basis), 4L)
 })
 
+test_that("input lengths are validated", {
+  basis <- matrix(1, nrow = 2, ncol = 1)
+
+  em_amp <- list(onsets = c(0L, 2L), n_time = 6L,
+                 amplitudes = c(1))
+  expect_error(build_design_matrix(em_amp, hrf_basis_matrix = basis),
+               "amplitudes")
+
+  em_mod <- list(onsets = c(0L, 2L), n_time = 6L,
+                 modulator = c(1))
+  expect_error(build_design_matrix(em_mod, hrf_basis_matrix = basis),
+               "modulator")
+})
+

@@ -11,10 +11,14 @@
 #'   `A_sl_train`.
 #' @param method Reduction method. Either "LDA" or "PLS-DA".
 #' @param dims Number of projection dimensions to return.
+#' @param tol Numeric tolerance added to the within-class scatter
+#'   matrix when computing the projection for LDA. Increasing this
+#'   value can help when the scatter matrix is nearly singular.
 #' @return An object with elements `W` (projection matrix) and
 #'   `method`.
 #' @export
-fit_pp <- function(A_sl_train, labels_train, method = "LDA", dims = 2) {
+fit_pp <- function(A_sl_train, labels_train, method = "LDA", dims = 2,
+                   tol = 1e-6) {
   if (!method %in% c("LDA", "PLS-DA")) {
     stop("method must be 'LDA' or 'PLS-DA'")
   }
@@ -36,13 +40,13 @@ fit_pp <- function(A_sl_train, labels_train, method = "LDA", dims = 2) {
       diff <- m_c - overall_mean
       S_B <- S_B + nrow(Xc) * tcrossprod(diff)
     }
-    mat <- tryCatch(solve(S_W + diag(1e-6, V), S_B), error = function(e) NULL)
+    mat <- tryCatch(solve(S_W + diag(tol, V), S_B), error = function(e) NULL)
     if (is.null(mat)) {
       W <- diag(ncol(A_sl_train))
     } else {
       eig <- eigen(mat)
       idx <- order(Re(eig$values), decreasing = TRUE)
-      W <- Re(eig$vectors[, idx[seq_len(min(dims, ncol(eig$vectors)))]])
+      W <- Re(eig$vectors[, idx[seq_len(min(dims, ncol(eig$vectors)))], drop = FALSE])
     }
   } else { # PLS-DA
     Y_ind <- model.matrix(~ labels_train - 1)
@@ -60,6 +64,16 @@ fit_pp <- function(A_sl_train, labels_train, method = "LDA", dims = 2) {
 #' @return Matrix of projected data.
 #' @export
 predict_pp <- function(pp_model, A_sl_new) {
-  A_sl_new %*% pp_model$W
+  if (is.null(pp_model$W) || !is.matrix(pp_model$W)) {
+    stop("pp_model must contain a matrix component 'W'")
+  }
+  if (!is.numeric(A_sl_new)) {
+    stop("A_sl_new must be numeric")
+  }
+  if (ncol(A_sl_new) != nrow(pp_model$W)) {
+    stop("Non-conformable matrices: ncol(A_sl_new) = ", ncol(A_sl_new),
+         " but nrow(pp_model$W) = ", nrow(pp_model$W))
+  }
+  (A_sl_new %*% pp_model$W)[, , drop = FALSE]
 }
 
