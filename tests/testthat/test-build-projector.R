@@ -11,6 +11,8 @@ test_that("build_projector sparse QR works", {
   R_exp <- qr.R(qr_obj)
   expect_equal(proj$Qt, Qt_exp)
   expect_equal(proj$R, R_exp)
+  K_exp <- solve(R_exp, Qt_exp)
+  expect_equal(proj$K_global, K_exp)
 })
 
 test_that("build_projector applies ridge", {
@@ -71,6 +73,17 @@ test_that("build_projector warns on high condition number", {
   expect_warning(build_projector(X))
 })
 
+
+test_that("build_projector uses ginv when R is singular", {
+  X <- Matrix::Matrix(matrix(c(1,1,1,1), 2, 2), sparse = TRUE)
+  proj <- suppressWarnings(build_projector(X))
+  qr_obj <- qr(as.matrix(X))
+  Qt_exp <- t(qr.Q(qr_obj))
+  R_exp <- qr.R(qr_obj)
+  K_exp <- MASS::ginv(R_exp) %*% Qt_exp
+  expect_equal(proj$K_global, K_exp)
+})
+
 test_that("build_projector validates inputs", {
   expect_error(build_projector(list()), "X_theta must be")
   X <- matrix(1, nrow = 2, ncol = 2)
@@ -78,4 +91,5 @@ test_that("build_projector validates inputs", {
                "lambda_global must be")
   expect_error(build_projector(X, lambda_global = -1),
                "lambda_global must be")
+
 })
