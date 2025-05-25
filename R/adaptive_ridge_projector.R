@@ -23,7 +23,8 @@
 #' @param diagnostics Logical; return diagnostic information.
 #' @return A list with elements:
 #'   \item{Z_sl_raw}{Projected coefficients ((N*K) x V_sl).}
-#'   \item{diag_data}{List of diagnostic information if requested.}
+#'   \item{diag_data}{List of diagnostic information if requested. When
+#'     `diagnostics = TRUE`, this includes the searchlight projector `K_sl`.}
 #' @export
 adaptive_ridge_projector <- function(Y_sl,
                                      projector_components,
@@ -136,7 +137,8 @@ adaptive_ridge_projector <- function(Y_sl,
     dl <- list(lambda_sl_chosen = lambda_eff,
                lambda_sl_raw = lambda_sl_raw,
                s_n_sq = s_n_sq,
-               s_b_sq = s_b_sq)
+               s_b_sq = s_b_sq,
+               K_sl = K_sl)
     diag_list <- cap_diagnostics(dl)
   }
 
