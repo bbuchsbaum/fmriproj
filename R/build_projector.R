@@ -6,6 +6,7 @@
 #' @param X_theta Sparse design matrix from \code{make_trialwise_X()}.
 #' @param lambda_global Non-negative ridge regularization parameter.
 #' @param diagnostics Logical; attach timing and condition number.
+#' @param pivot Logical; use fill-in reducing column pivoting (default TRUE).
 #'
 #' @return An object of class \code{fr_projector} containing \code{Qt},
 #'   \code{R}, \code{K_global}, and precomputed matrices \code{RtR} and
@@ -13,7 +14,8 @@
 #'   (pseudo-)inverse of \code{R} times \code{Qt}; otherwise ridge
 #'   regularization is applied.
 #' @export
-build_projector <- function(X_theta, lambda_global = 0, diagnostics = FALSE) {
+build_projector <- function(X_theta, lambda_global = 0, diagnostics = FALSE,
+                           pivot = TRUE) {
   if (!inherits(X_theta, c("matrix", "Matrix"))) {
     stop("X_theta must be a matrix or Matrix")
   }
@@ -24,8 +26,9 @@ build_projector <- function(X_theta, lambda_global = 0, diagnostics = FALSE) {
 
   start_time <- proc.time()["elapsed"]
 
-  qr_obj <- Matrix::qr(X_theta)
+  qr_obj <- Matrix::qr(X_theta, order = if (pivot) 3L else 0L)
   Qt <- t(Matrix::qr.Q(qr_obj))
+
   R <- Matrix::qr.R(qr_obj)
   RtR <- crossprod(R)
   tRQt <- t(R) %*% Qt
