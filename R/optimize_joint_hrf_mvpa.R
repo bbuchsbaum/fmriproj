@@ -18,6 +18,7 @@
 #' @param diagnostics Logical; return optimization trace.
 #' @param use_fd_grad Logical; compute gradient using finite differences if
 #'   `TMB` is installed and `hrf_basis_func` is marked as TMB compatible.
+#' @param use_tmb Deprecated alias for `use_fd_grad`.
 #' @param ... Additional arguments passed to `inner_cv_fn`.
 #'
 #' @return A list with elements `theta_hat`, `optim_details`, and optional
@@ -36,9 +37,15 @@ optimize_hrf_mvpa <- function(theta_init,
                               classifier_for_w_optim = NULL,
                               optim_w_params = list(),
                               use_fd_grad = FALSE,
+                              use_tmb = NULL,
                               diagnostics = FALSE,
                               ...) {
   trace_env <- new.env(parent = emptyenv())
+
+  if (!is.null(use_tmb)) {
+    warning("`use_tmb` is deprecated; use `use_fd_grad` instead.", call. = FALSE)
+    use_fd_grad <- use_tmb
+  }
 
   trace_env$df <- data.frame()
   N_trials <- length(event_model$onsets)

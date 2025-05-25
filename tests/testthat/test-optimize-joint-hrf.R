@@ -22,7 +22,7 @@ test_that("optimize_hrf_mvpa basic flow", {
   expect_true(nrow(res$diagnostics$theta_trace) >= 1)
 })
 
-test_that("warning when use_tmb but basis not compatible", {
+test_that("warning when use_fd_grad but basis not compatible", {
   Y <- matrix(1, nrow = 2, ncol = 1)
   em <- list(onsets = c(0L), n_time = 2L, basis_length = 1L)
   basis_fun <- function(theta, t) {
@@ -34,7 +34,7 @@ test_that("warning when use_tmb but basis not compatible", {
                        event_model = em,
                        inner_cv_fn = sum,
                        hrf_basis_func = basis_fun,
-                       use_tmb = TRUE,
+                       use_fd_grad = TRUE,
                        optim_method = "Nelder-Mead"),
     "gradients set to NULL"
   )
@@ -54,7 +54,7 @@ test_that("warning when TMB unavailable", {
                        event_model = em,
                        inner_cv_fn = sum,
                        hrf_basis_func = basis_fun,
-                       use_tmb = TRUE,
+                       use_fd_grad = TRUE,
                        optim_method = "Nelder-Mead"),
     "gradients set to NULL"
   )
