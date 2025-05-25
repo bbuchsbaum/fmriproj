@@ -37,31 +37,56 @@ collapse_beta <- function(Z_sl_raw, N_trials, K_hrf_bases,
   V_sl <- ncol(Z_sl_raw)
   A_sl <- matrix(0, nrow = N_trials, ncol = V_sl)
   w_sl <- NULL
+  Z_arr <- array(Z_sl_raw, dim = c(K_hrf_bases, N_trials, V_sl))
 
   if (method == "rss") {
-    for (n in seq_len(N_trials)) {
-      rows <- ((n - 1) * K_hrf_bases + 1):(n * K_hrf_bases)
-      A_sl[n, ] <- sqrt(colSums(Z_sl_raw[rows, , drop = FALSE]^2))
-    }
+    A_sl <- sqrt(apply(Z_arr^2, c(2, 3), sum))
   } else if (method == "pc") {
-    Z_stack <- matrix(0, nrow = N_trials * V_sl, ncol = K_hrf_bases)
-    for (n in seq_len(N_trials)) {
-      rows <- ((n - 1) * K_hrf_bases + 1):(n * K_hrf_bases)
-      Z_stack[((n - 1) * V_sl + 1):(n * V_sl), ] <- t(Z_sl_raw[rows, , drop = FALSE])
-    }
+#### codex/refactor-methods-to-use-reshaped-data
+    Z_stack <- t(matrix(Z_arr, nrow = K_hrf_bases))
     C_z <- crossprod(Z_stack) / (nrow(Z_stack) - 1)
     eig <- eigen(C_z)
     w_sl <- eig$vectors[, 1]
     w_sl <- w_sl / sqrt(sum(w_sl^2))
+    A_sl <- matrix(drop(crossprod(w_sl, matrix(Z_arr, nrow = K_hrf_bases))),
+                   nrow = N_trials, byrow = FALSE)
+##### >>>>
+    # compute covariance incrementally without constructing a large Z_stack
+    num_obs <- N_trials * V_sl
+    C_z_sum <- matrix(0, nrow = K_hrf_bases, ncol = K_hrf_bases)
+    for (n in seq_len(N_trials)) {
+      rows <- ((n - 1) * K_hrf_bases + 1):(n * K_hrf_bases)
+      Z_n <- Z_sl_raw[rows, , drop = FALSE]
+      C_z_sum <- C_z_sum + Z_n %*% t(Z_n)
+    }
+
+    if (num_obs <= 1) {
+      warning("Not enough observations to compute covariance; returning zeros")
+      C_z <- matrix(0, nrow = K_hrf_bases, ncol = K_hrf_bases)
+      w_sl <- rep(0, K_hrf_bases)
+    } else {
+      C_z <- C_z_sum / (num_obs - 1)
+      eig <- eigen(C_z, symmetric = TRUE)
+      w_sl <- eig$vectors[, 1]
+      w_sl <- w_sl / sqrt(sum(w_sl^2))
+    }
+
     for (n in seq_len(N_trials)) {
       rows <- ((n - 1) * K_hrf_bases + 1):(n * K_hrf_bases)
       A_sl[n, ] <- crossprod(w_sl, Z_sl_raw[rows, , drop = FALSE])
     }
+#### main
   } else if (method == "optim") {
     if (is.null(classifier_for_w_optim) || is.null(labels_for_w_optim)) {
       stop("classifier_for_w_optim and labels_for_w_optim must be provided for method='optim'")
     }
+#### codex/refactor-methods-to-use-reshaped-data
+####
+    if (length(labels_for_w_optim) != N_trials) {
+      stop("length(labels_for_w_optim) must equal N_trials")
+    }
     Z_arr <- array(Z_sl_raw, dim = c(K_hrf_bases, N_trials, V_sl))
+#### main
     fn_gr <- function(w) {
       A_tmp <- apply(Z_arr, c(2, 3), function(z) sum(z * w))
       res <- classifier_for_w_optim(A_tmp, labels_for_w_optim)
@@ -71,10 +96,11 @@ collapse_beta <- function(Z_sl_raw, N_trials, K_hrf_bases,
       }, numeric(1))
       list(value = res$loss, grad = grad_w)
     }
+    cached <- make_cached_fn_gr(fn_gr)
     if (is.null(optim_w_params$maxit)) optim_w_params$maxit <- 5
     opt_res <- stats::optim(par = rep(1 / sqrt(K_hrf_bases), K_hrf_bases),
-                            fn = function(w) fn_gr(w)$value,
-                            gr = function(w) fn_gr(w)$grad,
+                            fn = cached$fn,
+                            gr = cached$gr,
                             method = "L-BFGS-B",
                             control = optim_w_params)
     w_sl <- opt_res$par
@@ -95,4 +121,36 @@ collapse_beta <- function(Z_sl_raw, N_trials, K_hrf_bases,
   }
 
   list(A_sl = A_sl, w_sl = w_sl, diag_data = diag_list)
+}
+
+#' Create cached fn and gr wrappers
+#'
+#' Given a function that returns value and gradient as a list with elements
+#' `value` and `grad`, return list of `fn` and `gr` functions that cache the
+#' result for the most recent parameter vector `w`.
+#'
+#' @param fn_gr Function taking `w` and returning list with `value` and `grad`.
+#' @keywords internal
+make_cached_fn_gr <- function(fn_gr) {
+  env <- new.env(parent = emptyenv())
+  env$w <- NULL
+  env$res <- NULL
+
+  fn <- function(w) {
+    if (is.null(env$w) || !isTRUE(all.equal(env$w, w))) {
+      env$res <- fn_gr(w)
+      env$w <- w
+    }
+    env$res$value
+  }
+
+  gr <- function(w) {
+    if (is.null(env$w) || !isTRUE(all.equal(env$w, w))) {
+      env$res <- fn_gr(w)
+      env$w <- w
+    }
+    env$res$grad
+  }
+
+  list(fn = fn, gr = gr, env = env)
 }
