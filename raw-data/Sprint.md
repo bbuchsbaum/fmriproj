@@ -102,7 +102,6 @@ Okay, here's a potential "ticketed sprint" plan for the `fmriproj` package devel
 **Sprint 9: Documentation & Vignettes**
 
 *   **Ticket FPJ-901:** Write "From GLM to single-pass: understanding the projection" vignette.
-    *   Include Haxby example.
     *   Show `explain_projection_results()` usage.
 *   **Ticket FPJ-902:** Develop API documentation (roxygen2) for all exported functions.
 *   **Ticket FPJ-903:** Create the "Cheat-Sheet PDF" outlining usage profiles.
