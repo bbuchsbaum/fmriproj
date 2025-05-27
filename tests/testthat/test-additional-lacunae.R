@@ -1,0 +1,91 @@
+library(testthat)
+
+# Additional coverage tests
+
+# build_design_matrix missing basis
+
+test_that("build_design_matrix requires HRF basis specification", {
+  em <- list(onsets = c(0L), n_time = 3L)
+  expect_error(build_design_matrix(em), "Provide either")
+})
+
+# build_design_matrix warns when columns exceed max_X_cols
+
+test_that("build_design_matrix warns when exceeding max_X_cols", {
+  em <- list(onsets = 0:2, n_time = 6L)
+  basis <- matrix(1, nrow = 2, ncol = 1)
+  expect_warning(build_design_matrix(em, hrf_basis_matrix = basis, max_X_cols = 2),
+                 "max_X_cols")
+})
+
+# adaptive_ridge_projector validation branches
+
+test_that("adaptive_ridge_projector validates lambda method", {
+  em <- list(onsets = c(0L), n_time = 2L)
+  basis <- matrix(1, nrow = 1, ncol = 1)
+  X <- build_design_matrix(em, hrf_basis_matrix = basis)$X
+  proj <- build_projector(X)
+  Y <- matrix(1, nrow = 2, ncol = 1)
+  expect_error(adaptive_ridge_projector(Y, proj, lambda_adaptive_method = "bogus"),
+               "Unknown")
+})
+
+test_that("adaptive_ridge_projector checks lambda_floor_global", {
+  em <- list(onsets = c(0L), n_time = 2L)
+  basis <- matrix(1, nrow = 1, ncol = 1)
+  X <- build_design_matrix(em, hrf_basis_matrix = basis)$X
+  proj <- build_projector(X)
+  Y <- matrix(1, nrow = 2, ncol = 1)
+  expect_error(adaptive_ridge_projector(Y, proj, lambda_floor_global = -1),
+               "non-negative")
+})
+
+test_that("adaptive_ridge_projector requires X for EB method", {
+  em <- list(onsets = c(0L), n_time = 2L)
+  basis <- matrix(1, nrow = 1, ncol = 1)
+  X <- build_design_matrix(em, hrf_basis_matrix = basis)$X
+  proj <- build_projector(X)
+  Y <- matrix(1, nrow = 2, ncol = 1)
+  expect_error(adaptive_ridge_projector(Y, proj, lambda_adaptive_method = "EB"),
+               "X_theta_for_EB_residuals")
+})
+
+# collapse_beta validation branches
+
+test_that("collapse_beta validates method", {
+  Z <- matrix(1, nrow = 2, ncol = 1)
+  expect_error(collapse_beta(Z, N_trials = 1, K_hrf_bases = 2, method = "bad"),
+               "arg")
+})
+
+test_that("collapse_beta optim requires labels and classifier", {
+  Z <- matrix(1, nrow = 2, ncol = 1)
+  expect_error(collapse_beta(Z, N_trials = 1, K_hrf_bases = 2, method = "optim"),
+               "classifier_for_w_optim")
+})
+
+# predict_pp dimension check
+
+test_that("predict_pp checks dimensions", {
+  model <- list(W = matrix(1, nrow = 2, ncol = 1))
+  expect_error(predict_pp(model, matrix(1, nrow = 1, ncol = 3)), "TRUE")
+})
+
+# optimize_hrf_mvpa inner function validation
+
+test_that("optimize_hrf_mvpa validates inner_cv_fn return", {
+  Y <- matrix(1, nrow = 2, ncol = 1)
+  em <- list(onsets = c(0L), n_time = 2L, basis_length = 1L)
+  basis_fun <- function(theta, t) matrix(1, nrow = length(t), ncol = 1)
+  bad_fn <- function(A) NA
+  expect_error(
+    optimize_hrf_mvpa(theta_init = c(1),
+                      Y = Y,
+                      event_model = em,
+                      inner_cv_fn = bad_fn,
+                      hrf_basis_func = basis_fun,
+                      optim_method = "Nelder-Mead"),
+    "must return"
+  )
+})
+
