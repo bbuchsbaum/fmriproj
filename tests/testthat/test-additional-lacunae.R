@@ -89,3 +89,21 @@ test_that("optimize_hrf_mvpa validates inner_cv_fn return", {
   )
 })
 
+# fit_pp method validation
+
+test_that("fit_pp rejects unknown methods", {
+  A <- matrix(rnorm(4), ncol = 2)
+  labs <- c("a", "b")
+  expect_error(fit_pp(A, labs, method = "bogus"), "method must be")
+})
+
+# collapse_beta PC fallback when eigen fails
+
+test_that("collapse_beta pc falls back to rss on eigen failure", {
+  Z <- matrix(c(1, NA, 3, 4), nrow = 4, ncol = 1)
+  expect_warning(res <- collapse_beta(Z, N_trials = 2, K_hrf_bases = 2,
+                                      method = "pc"), "PCA failed")
+  expect_equal(res$w_sl, rep(1 / sqrt(2), 2))
+  expect_true(all(is.na(res$A_sl)))
+})
+
