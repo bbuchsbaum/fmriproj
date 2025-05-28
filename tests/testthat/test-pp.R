@@ -20,3 +20,10 @@ test_that("fit_pp and predict_pp work for PLS-DA", {
   expect_equal(ncol(proj), 1)
   expect_equal(nrow(proj), nrow(A))
 })
+
+test_that("fit_pp handles single class by returning identity", {
+  A <- matrix(rnorm(10), ncol = 2)
+  labels <- rep("a", nrow(A))
+  model <- fit_pp(A, labels, method = "LDA", dims = 2)
+  expect_equal(model$W, diag(ncol(A)))
+})
