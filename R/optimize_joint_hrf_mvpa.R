@@ -15,14 +15,23 @@
 #' @param lambda_adaptive_method Method passed to `adaptive_ridge_projector`.
 #' @param collapse_method Collapse method for `collapse_beta`.
 #' @param optim_method Optimization method for `stats::optim`.
+#' @param labels_for_w_optim Trial labels for supervised weight optimization. 
+#'   Required when `collapse_method = "optim"`.
+#' @param classifier_for_w_optim Function for supervised weight optimization.
+#'   Should take `A_sl` and `labels` and return a list with `loss` and `grad`.
+#'   Required when `collapse_method = "optim"`.
+#' @param optim_w_params List of control parameters passed to the optimizer
+#'   for weight optimization when `collapse_method = "optim"`.
 #' @param diagnostics Logical; return optimization trace
 #' @param use_fd_grad Logical; compute gradient using finite differences.
 #'   An optional TMB-based implementation can be added, but there is no
 #'   requirement for TMB.
+#' @param use_tmb Deprecated. Use `use_fd_grad` instead.
 #' @param ... Additional arguments passed to `inner_cv_fn`.
 #'
 #' @return A list with elements `theta_hat`, `optim_details`, and optional
 #'   `diagnostics` containing the optimization trace.
+#' @aliases optimize_joint_hrf_mvpa
 #' @export
 optimize_hrf_mvpa <- function(theta_init,
                               Y,

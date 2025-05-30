@@ -63,27 +63,28 @@ adaptive_ridge_projector <- function(Y_sl,
   if (lambda_adaptive_method == "none") {
     lambda_eff <- lambda_floor_global
   } else if (lambda_adaptive_method == "EB") {
-  if (is.null(X_theta_for_EB_residuals))
-    stop("X_theta_for_EB_residuals must be provided for EB method")
+    if (is.null(X_theta_for_EB_residuals))
+      stop("X_theta_for_EB_residuals must be provided for EB method")
 
-  T_obs <- nrow(Y_sl)
-  m     <- ncol(R)
+    T_obs <- nrow(Y_sl)
+    m     <- ncol(R)
 
-  ## not enough timepoints → fall back to floor
-  if (T_obs <= m) {
-    warning("T_obs ≤ number of regressors; skipping EB for this search-light")
-    lambda_eff <- lambda_floor_global
-  } else {
-    ##  OLS, upper-triangular solve
-    beta_ols  <- backsolve(R, Qt %*% Y_sl, upper = TRUE)
-    resid_mat <- Y_sl - X_theta_for_EB_residuals %*% beta_ols
+    ## not enough timepoints → fall back to floor
+    if (T_obs <= m) {
+      warning("T_obs ≤ number of regressors; skipping EB for this search-light")
+      lambda_eff <- lambda_floor_global
+    } else {
+      ##  OLS, upper-triangular solve
+      beta_ols  <- backsolve(R, Qt %*% Y_sl, upper = TRUE)
+      resid_mat <- Y_sl - X_theta_for_EB_residuals %*% beta_ols
 
-    ## voxel-wise variance estimates
-    s_n_sq_vec <- colSums(resid_mat^2) / (T_obs - m)
-    s_b_sq_vec <- colSums(beta_ols^2) / m
+      ## voxel-wise variance estimates
+      s_n_sq_vec <- colSums(resid_mat^2) / (T_obs - m)
+      s_b_sq_vec <- colSums(beta_ols^2) / m
 
-    lambda_sl_raw <- median(s_n_sq_vec / s_b_sq_vec, na.rm = TRUE)
-    lambda_eff    <- max(lambda_floor_global, lambda_sl_raw)
+      lambda_sl_raw <- median(s_n_sq_vec / s_b_sq_vec, na.rm = TRUE)
+      lambda_eff    <- max(lambda_floor_global, lambda_sl_raw)
+    }
   } else if (lambda_adaptive_method == "LOOcv_local") {
     if (is.null(X_theta_for_EB_residuals)) {
       stop("X_theta_for_EB_residuals must be provided for LOOcv_local")

@@ -14,7 +14,7 @@ Description: Implements projected multivariate pattern analysis (MVPA) for fMRI 
 License: GPL-3
 Encoding: UTF-8
 LazyData: true
-RoxygenNote: 7.2.3
+RoxygenNote: 7.3.2.9000
 Depends:
     R (>= 4.0.0)
 LinkingTo:
@@ -45,4 +45,4 @@ Remotes:
     bbuchsbaum/rMVPA
 VignetteBuilder: knitr
 URL: https://github.com/bbuchsbaum/fmriproj
-BugReports: https://github.com/bbuchsbaum/fmriproj/issues 
+BugReports: https://github.com/bbuchsbaum/fmriproj/issues

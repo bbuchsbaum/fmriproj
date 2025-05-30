@@ -20,6 +20,7 @@
 #'
 #' @return An object of class `fr_design_matrix` containing the design
 #'   matrix and metadata.
+#' @aliases make_trialwise_X
 #' @export
 build_design_matrix <- function(event_model,
                                 hrf_basis_func = NULL,

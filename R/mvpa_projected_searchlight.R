@@ -22,6 +22,7 @@
 #' @return If \code{rMVPA} is installed, the result of
 #'   \code{rMVPA::searchlight}. Otherwise a list containing the prepared
 #'   components and searchlight function.
+#' @aliases mvpa_projected_searchlight
 #' @export
 run_projected_searchlight <- function(Y,
                                       event_model,
@@ -50,7 +51,8 @@ run_projected_searchlight <- function(Y,
   N_trials <- length(event_model$onsets)
   K_hrf <- ncol(as.matrix(X_obj$hrf_info$basis))
 
-  sl_FUN <- function(Y_sl, sl_info = NULL) {
+  sl_FUN <- function(Y_sl, coords = NULL, indices = NULL, ...) {
+    # Accept rMVPA's standard searchlight function arguments
     proj_res <- adaptive_ridge_projector(
       Y_sl,
       proj_comp,
@@ -66,13 +68,21 @@ run_projected_searchlight <- function(Y,
       method = collapse_method,
       diagnostics = diagnostics
     )
-    diag_out <- NULL
+    
+    # Return format based on diagnostics flag
     if (diagnostics) {
       dl <- list(lambda_sl = proj_res$diag_data$lambda_sl_chosen,
                  w_sl = coll_res$w_sl)
       diag_out <- cap_diagnostics(dl)
+      # Full list format for diagnostics
+      list(data = coll_res$A_sl, 
+           diag_data = diag_out,
+           coords = coords,
+           indices = indices)
+    } else {
+      # Simple matrix format for standard rMVPA compatibility
+      coll_res$A_sl
     }
-    list(A_sl = coll_res$A_sl, diag_data = diag_out)
   }
 
   if (requireNamespace("rMVPA", quietly = TRUE)) {
