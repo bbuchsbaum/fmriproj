@@ -1,0 +1,136 @@
+---
+title: "Running rMVPA Analyses on Time-Series Data"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Running rMVPA Analyses on Time-Series Data}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include=FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+```
+
+## Overview
+
+This article demonstrates the streamlined interface for running multivariate
+pattern analyses directly from fMRI time-series data. The high level
+functions `run_searchlight()` and `run_regional()` wrap the full
+projection pipeline and automatically create all required `rMVPA` objects.
+
+We assume you have already installed **fmriproj**, **fmrireg** and
+**rMVPA** from GitHub.
+
+```{r eval=FALSE}
+# Install packages
+remotes::install_github("bbuchsbaum/fmrireg")
+remotes::install_github("bbuchsbaum/rMVPA")
+remotes::install_github("bbuchsbaum/fmriproj")
+```
+
+```{r setup}
+library(fmriproj)
+library(fmrireg)
+library(rMVPA)
+```
+
+## Basic Searchlight Example
+
+Starting from a time-series matrix `Y` (time \* voxels) and an event
+model describing your trials, a whole-brain searchlight analysis can be
+run in a single call:
+
+```{r searchlight-simple, eval=FALSE}
+# Y           : time x voxels matrix
+# events      : data frame with onsets and conditions
+# brain_mask  : logical vector or matrix
+
+event_model <- fmrireg::event_model(
+  onsets     = events$onset,
+  conditions = events$condition,
+  blocks     = events$run
+)
+
+sl_result <- run_searchlight(
+  Y            = Y,
+  event_model  = event_model,
+  mask         = brain_mask,
+  radius       = 3,
+  classifier   = "sda_notune"
+)
+```
+
+The returned object is an `rMVPA::searchlight_result` containing
+accuracy maps and optional diagnostics.
+
+## Running a Regional Analysis
+
+For a single region of interest the `run_regional()` function mirrors
+`run_searchlight()`:
+
+```{r regional-simple, eval=FALSE}
+roi_result <- run_regional(
+  Y            = Y,
+  event_model  = event_model,
+  region_mask  = roi_mask,
+  classifier   = "sda_notune"
+)
+```
+
+## Customising Projection Options
+
+Both high level functions accept a `projection_opts` list to control
+regularisation and HRF collapse methods:
+
+```{r opts-example, eval=FALSE}
+opts <- list(
+  lambda_adaptive_method = "CV",
+  collapse_method        = "pc",
+  lambda_global          = 0.2
+)
+
+sl_cv <- run_searchlight(
+  Y, event_model, mask = brain_mask,
+  projection_opts = opts
+)
+```
+
+## Progressive Projection as Feature Selection
+
+`rMVPA` feature selectors can be combined with the projection framework.
+The helper `pp_feature_selector()` attaches a progressive projection step
+before classification:
+
+```{r pp-example, eval=FALSE}
+model <- rMVPA::mvpa_model(
+  model   = rMVPA::load_model("sda_notune"),
+  dataset = rMVPA::mvpa_dataset(Y, brain_mask),
+  design  = rMVPA::mvpa_design(event_model$conditions)
+)
+
+model$feature_selector <- pp_feature_selector(dims = 5)
+
+pp_result <- run_searchlight(
+  Y, event_model, brain_mask,
+  classifier = "sda_notune",
+  projection_opts = list(),
+  cross_validation = NULL
+)
+```
+
+## Interpreting Results and Diagnostics
+
+The `searchlight_result` and `regional_mvpa_result` objects contain
+performance values and optional diagnostic information about the
+projection step. Functions such as `plot_searchlight_diagnostics()` can
+visualise adaptive lambda values or HRF weights for a given voxel.
+
+```{r diag-example, eval=FALSE}
+plot_searchlight_diagnostics(pp_result, voxel = 100, plot_type = "lambda")
+```
+
+Refer to the package documentation for further details.
+

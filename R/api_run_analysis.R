@@ -2,6 +2,8 @@
 #'
 #' High-level wrapper that automatically builds the necessary
 #' `rMVPA` objects and connects them to the fmriproj projection pipeline.
+#' See the vignette "Running rMVPA Analyses on Time-Series Data" for a
+#' complete walkthrough.
 #'
 #' @param Y Time-series matrix (time x voxels)
 #' @param event_model Event model list describing trial onsets and labels
@@ -77,7 +79,8 @@ run_searchlight <- function(Y,
 #' Run MVPA on a single region of interest
 #'
 #' This function mirrors `run_searchlight()` but operates on a predefined
-#' region mask instead of iterating searchlights.
+#' region mask instead of iterating searchlights. See the vignette
+#' "Running rMVPA Analyses on Time-Series Data" for usage examples.
 #'
 #' @inheritParams run_searchlight
 #' @param region_mask Logical vector or matrix defining the region of interest

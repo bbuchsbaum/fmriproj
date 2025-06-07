@@ -1,5 +1,10 @@
 #' Project trials from time-series data
 #'
+#' \strong{Deprecated}. The high-level [`run_regional()`] function now
+#' provides a more flexible interface for projecting trial patterns from
+#' time-series data. `project_trials()` remains as a thin helper around the
+#' core projection steps but will be removed in a future release.
+#'
 #' A user-friendly wrapper that handles the complete projection pipeline
 #' in one function call. This is the simplest way to get trial patterns
 #' from fMRI time-series data.
@@ -12,6 +17,7 @@
 #' @param verbose Print progress messages
 #' @return Matrix of trial patterns (trials x voxels)
 #' @export
+#' @deprecated Use `run_regional()` for single-ROI analyses.
 #' @examples
 #' # Simple usage
 #' trial_patterns <- project_trials(bold_data, event_model)
@@ -19,12 +25,14 @@
 #' # With adaptive regularization
 #' trial_patterns <- project_trials(bold_data, event_model, 
 #'                                  lambda_method = "EB")
-project_trials <- function(Y, 
+project_trials <- function(Y,
                           event_model,
                           lambda_method = c("EB", "none", "CV"),
                           collapse_method = c("rss", "pc", "optim"),
                           hrf_basis = NULL,
                           verbose = TRUE) {
+
+  .Deprecated("run_regional")
   
   lambda_method <- match.arg(lambda_method)
   collapse_method <- match.arg(collapse_method)

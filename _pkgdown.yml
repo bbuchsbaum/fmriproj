@@ -30,4 +30,6 @@ navbar:
       text: Articles
       menu:
       - text: Getting Started
-        href: articles/getting-started.html 
+        href: articles/getting-started.html
+      - text: Running rMVPA on Time-Series
+        href: articles/running-rmvpa-time-series.html
