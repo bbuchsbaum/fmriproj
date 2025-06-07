@@ -56,6 +56,10 @@ collapse_beta <- function(Z_sl_raw, N_trials,
         warning("PCA failed; falling back to rss")
         w_sl <- rep(1 / sqrt(K_hrf_bases), K_hrf_bases)
         A_vec <- sqrt(colSums(Zmat^2))
+        # If PCA failed due to NAs, propagate NAs to the result
+        if (any(is.na(Zmat))) {
+          A_vec[] <- NA
+        }
       } else {
         w_sl <- eig$vectors[, 1]
         w_sl <- w_sl / sqrt(sum(w_sl^2) + 1e-12)

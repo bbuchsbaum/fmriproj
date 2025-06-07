@@ -27,9 +27,9 @@ build_projector <- function(X_theta, lambda_global = 0, diagnostics = FALSE,
   start_time <- proc.time()["elapsed"]
 
   qr_obj <- Matrix::qr(X_theta, order = if (pivot) 3L else 0L)
-  Qt <- t(Matrix::qr.Q(qr_obj))
+  Qt <- as.matrix(t(Matrix::qr.Q(qr_obj)))
 
-  R <- Matrix::qr.R(qr_obj)
+  R <- as.matrix(Matrix::qr.R(qr_obj))
   RtR <- crossprod(R)
   tRQt <- t(R) %*% Qt
 

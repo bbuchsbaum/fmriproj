@@ -1,6 +1,7 @@
 useDynLib(fmriproj, .registration=TRUE)
 importFrom(Rcpp, evalCpp)
 importFrom(MASS, ginv)
+import(Matrix)
 export(fr_design_matrix)
 export(fr_projector)
 export(is.fr_design_matrix)
@@ -25,3 +26,15 @@ export(optimize_hrf_mvpa)
 export(optimize_joint_hrf_mvpa)
 export(fit_pp)
 export(predict_pp)
+
+# User-friendly wrappers
+export(project_trials)
+export(mvpa_searchlight)
+export(check_data_compatibility)
+export(plot_searchlight_diagnostics)
+
+# rMVPA compatibility functions
+export(make_rmvpa_searchlight_fun)
+export(as_mvpa_dataset)
+export(run_searchlight_projected)
+export(pp_feature_selector)

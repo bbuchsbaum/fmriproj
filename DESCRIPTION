@@ -39,7 +39,9 @@ Suggests:
     testthat (>= 3.0.0),
     knitr,
     rmarkdown,
-    ggplot2
+    ggplot2,
+    covr,
+    pkgdown
 Remotes:
     bbuchsbaum/fmrireg,
     bbuchsbaum/rMVPA

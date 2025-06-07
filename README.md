@@ -1,5 +1,12 @@
 # fmriproj
 
+<!-- badges: start -->
+[![R-CMD-check](https://github.com/bbuchsbaum/fmriproj/actions/workflows/R-CMD-check.yaml/badge.svg)](https://github.com/bbuchsbaum/fmriproj/actions/workflows/R-CMD-check.yaml)
+[![test-coverage](https://github.com/bbuchsbaum/fmriproj/actions/workflows/test-coverage.yaml/badge.svg)](https://github.com/bbuchsbaum/fmriproj/actions/workflows/test-coverage.yaml)
+[![Codecov test coverage](https://codecov.io/gh/bbuchsbaum/fmriproj/branch/main/graph/badge.svg)](https://app.codecov.io/gh/bbuchsbaum/fmriproj?branch=main)
+[![pkgdown](https://github.com/bbuchsbaum/fmriproj/actions/workflows/pkgdown.yaml/badge.svg)](https://github.com/bbuchsbaum/fmriproj/actions/workflows/pkgdown.yaml)
+<!-- badges: end -->
+
 Projected Multivariate Pattern Analysis for fMRI Data
 
 ## Overview

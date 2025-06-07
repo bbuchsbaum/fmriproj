@@ -3,7 +3,7 @@
 
 #' @import fmrireg
 #' @import rMVPA
-#' @importFrom Matrix Matrix
+#' @import Matrix
 #' @importFrom dplyr %>%
 #' @importFrom tibble tibble
 #' @importFrom assertthat assert_that

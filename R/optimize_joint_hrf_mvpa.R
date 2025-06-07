@@ -27,6 +27,8 @@
 #'   An optional TMB-based implementation can be added, but there is no
 #'   requirement for TMB.
 #' @param use_tmb Deprecated. Use `use_fd_grad` instead.
+#' @param lower Lower bounds for optimization (for methods that support bounds).
+#' @param upper Upper bounds for optimization (for methods that support bounds).
 #' @param ... Additional arguments passed to `inner_cv_fn`.
 #'
 #' @return A list with elements `theta_hat`, `optim_details`, and optional
@@ -48,6 +50,8 @@ optimize_hrf_mvpa <- function(theta_init,
                               use_fd_grad = FALSE,
                               use_tmb = NULL,
                               diagnostics = FALSE,
+                              lower = -Inf,
+                              upper = Inf,
                               ...) {
   trace_env <- new.env(parent = emptyenv())
 
@@ -118,7 +122,9 @@ optimize_hrf_mvpa <- function(theta_init,
   optim_res <- stats::optim(par = theta_init,
                             fn = loss_fn_theta,
                             gr = grad_fn,
-                            method = optim_method)
+                            method = optim_method,
+                            lower = lower,
+                            upper = upper)
 
   diag_list <- NULL
   if (diagnostics) {

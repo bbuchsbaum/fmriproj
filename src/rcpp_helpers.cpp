@@ -7,7 +7,12 @@ arma::sp_mat triplet_to_spmat_cpp(const arma::uvec& i,
                                   const arma::vec& x,
                                   unsigned int nrow,
                                   unsigned int ncol) {
-  arma::sp_mat out(i, j, x, nrow, ncol);
+  // Create locations matrix: 2 x n_vals, where first row is i, second is j
+  arma::umat locations(2, i.n_elem);
+  locations.row(0) = i.t();
+  locations.row(1) = j.t();
+  
+  arma::sp_mat out(locations, x, nrow, ncol);
   return out;
 }
 

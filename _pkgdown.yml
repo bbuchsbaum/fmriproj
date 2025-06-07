@@ -1,0 +1,33 @@
+url: https://bbuchsbaum.github.io/fmriproj/
+template:
+  bootstrap: 5
+
+development:
+  mode: auto
+
+home:
+  title: fmriproj - Projected Multivariate Pattern Analysis for fMRI Data
+  description: >
+    Implements projected multivariate pattern analysis (MVPA) for fMRI data.
+    This package provides a three-layer framework for analyzing fMRI data.
+
+reference:
+- title: Design Matrix Construction
+  desc: Functions for building design matrices with HRF parameters
+- title: Ridge Projection
+  desc: Adaptive ridge projection for dimensionality reduction  
+- title: Beta Collapse
+  desc: Beta coefficient collapse strategies
+- title: Model Fitting and Prediction
+  desc: Functions for model fitting and prediction
+
+navbar:
+  structure:
+    left:  [intro, reference, articles, tutorials, news]
+    right: [search, github]
+  components:
+    articles:
+      text: Articles
+      menu:
+      - text: Getting Started
+        href: articles/getting-started.html 

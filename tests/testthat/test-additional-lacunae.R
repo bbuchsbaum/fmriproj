@@ -84,7 +84,9 @@ test_that("optimize_hrf_mvpa validates inner_cv_fn return", {
                       event_model = em,
                       inner_cv_fn = bad_fn,
                       hrf_basis_func = basis_fun,
-                      optim_method = "Nelder-Mead"),
+                      optim_method = "Brent",
+                      lower = 0.5,
+                      upper = 2),
     "must return"
   )
 })
