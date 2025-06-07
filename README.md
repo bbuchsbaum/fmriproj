@@ -59,7 +59,8 @@ remotes::install_github("bbuchsbaum/fmriproj")
 - `build_design_matrix()`: Constructs trial-wise design matrices
 - `adaptive_ridge_projector()`: Performs adaptive ridge projection
 - `collapse_beta()`: Implements beta coefficient collapse strategies
-- `run_searchlight_projected()`: Runs projected MVPA searchlight analysis
+- `run_searchlight()`: Run a projected searchlight MVPA analysis
+- `run_regional()`: Run a projected ROI-based MVPA analysis
 - `optimize_hrf_mvpa()`: Optimizes HRF parameters for MVPA performance
 
 ### Gradient computation
