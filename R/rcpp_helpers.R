@@ -27,8 +27,8 @@ make_spmat_triplet <- function(i, j, x, nrow, ncol) {
   if (any(i >= nrow) || any(j >= ncol))
     stop("Indices out of range")
 
-  .triplet_to_spmat_cpp(as.integer(i), as.integer(j), as.numeric(x),
-                        as.integer(nrow), as.integer(ncol))
+  triplet_to_spmat_cpp(as.integer(i), as.integer(j), as.numeric(x),
+                       as.integer(nrow), as.integer(ncol))
 }
 
 #' Sparse matrix - dense matrix product
@@ -52,5 +52,5 @@ spmat_dense_prod <- function(A, B) {
   if (ncol(A) != nrow(B))
     stop("Non-conformable matrices: ncol(A) != nrow(B)")
 
-  .spmat_dense_prod_cpp(A, B)
+  spmat_dense_prod_cpp(A, B)
 }
