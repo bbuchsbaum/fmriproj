@@ -23,9 +23,26 @@ test_that("derivatives behave as expected for simple t", {
   hrf <- stats::dgamma(t, shape = p1, rate = d1) -
     0.35 * stats::dgamma(t, shape = p2, rate = d2)
   if (max(hrf) != 0) hrf <- hrf / max(hrf)
-  dt <- mean(diff(t))
-  deriv1 <- c(diff(hrf) / dt, 0)
-  deriv2 <- c(diff(deriv1) / dt, 0)
+  n <- length(hrf)
+  deriv1 <- numeric(n)
+  deriv2 <- numeric(n)
+
+  if (n > 1) {
+    deriv1[1] <- (hrf[2] - hrf[1]) / (t[2] - t[1])
+    deriv1[n] <- (hrf[n] - hrf[n - 1]) / (t[n] - t[n - 1])
+    if (n > 2) {
+      deriv1[2:(n - 1)] <- (hrf[3:n] - hrf[1:(n - 2)]) /
+        (t[3:n] - t[1:(n - 2)])
+    }
+
+    deriv2[1] <- (deriv1[2] - deriv1[1]) / (t[2] - t[1])
+    deriv2[n] <- (deriv1[n] - deriv1[n - 1]) / (t[n] - t[n - 1])
+    if (n > 2) {
+      deriv2[2:(n - 1)] <- (deriv1[3:n] - deriv1[1:(n - 2)]) /
+        (t[3:n] - t[1:(n - 2)])
+    }
+  }
+
   expected <- cbind(hrf, deriv1, deriv2)
 
   expect_equal(B, expected)
