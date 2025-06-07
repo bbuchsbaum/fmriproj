@@ -3,30 +3,26 @@
 #' Wraps fmriproj's projection pipeline to produce output that matches
 #' what rMVPA expects from a feature extraction function.
 #'
-#' @param event_model Event model from fmrireg
-#' @param projector_components Pre-computed projector from build_projector
-#' @param N_trials Number of trials
-#' @param K_hrf Number of HRF basis functions
-#' @param lambda_adaptive_method Adaptive lambda method
-#' @param lambda_global Global lambda value
-#' @param collapse_method Beta collapse method
-#' @param X_theta_dense Dense design matrix for EB method
+#' @param spec A `projection_spec` object describing the projection
+#'   parameters.
 #' @param return_format Format of return value: "matrix" (just features), 
 #'   "mvpa_data" (rMVPA data structure), or "list" (with diagnostics)
 #' @return A function suitable for rMVPA::run_searchlight
 #' @export
-make_rmvpa_searchlight_fun <- function(event_model,
-                                       projector_components,
-                                       N_trials,
-                                       K_hrf,
-                                       lambda_adaptive_method = "none",
-                                       lambda_global = 0,
-                                       collapse_method = "rss",
-                                       X_theta_dense = NULL,
+make_rmvpa_searchlight_fun <- function(spec,
                                        return_format = c("matrix", "mvpa_data", "list")) {
   
   return_format <- match.arg(return_format)
-  
+
+  event_model <- spec$event_model
+  projector_components <- spec$projector_components
+  N_trials <- spec$N_trials
+  K_hrf <- spec$K_hrf
+  lambda_adaptive_method <- spec$lambda_adaptive_method
+  lambda_global <- spec$lambda_global
+  collapse_method <- spec$collapse_method
+  X_theta_dense <- spec$X_theta_dense
+
   function(Y_sl, coords = NULL, indices = NULL, ...) {
     # Core projection pipeline
     proj_res <- adaptive_ridge_projector(

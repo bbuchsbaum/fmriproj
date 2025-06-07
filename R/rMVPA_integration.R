@@ -34,14 +34,20 @@ run_searchlight_projected <- function(model_spec,
   design <- build_design_matrix(event_model)
   proj_comp <- build_projector(design$X, lambda_global = proj_opts$lambda_global)
   
-  # Create searchlight function that returns what rMVPA expects
-  sl_fun <- make_rmvpa_searchlight_fun(
+  # Bundle projection parameters
+  spec <- projection_spec(
     event_model = event_model,
     projector_components = proj_comp,
     N_trials = length(event_model$onsets),
     K_hrf = ncol(design$hrf_info$basis),
     lambda_adaptive_method = proj_opts$lambda_adaptive_method,
-    collapse_method = proj_opts$collapse_method,
+    lambda_global = proj_opts$lambda_global,
+    collapse_method = proj_opts$collapse_method
+  )
+
+  # Create searchlight function that returns what rMVPA expects
+  sl_fun <- make_rmvpa_searchlight_fun(
+    spec,
     return_format = "matrix"  # rMVPA expects simple matrix
   )
   

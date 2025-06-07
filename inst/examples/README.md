@@ -45,7 +45,7 @@ This directory contains examples demonstrating the usage of all exported functio
 
 ## High-Level Functions
 
-- **[example_run_projected_searchlight.R](example_run_projected_searchlight.R)** - One-line searchlight analysis
+- **[example_run_searchlight_projected.R](example_run_searchlight_projected.R)** - One-line searchlight analysis
   - Basic projected searchlight
   - Different adaptive methods
   - Dynamic HRF basis functions
@@ -85,5 +85,5 @@ Most examples use simulated data and don't require external dependencies beyond 
 
 1. Start with `example_build_design_matrix.R` to understand the input format
 2. Progress through the layers in order (1-4) to understand the pipeline
-3. Use `example_run_projected_searchlight.R` to see the integrated workflow
+3. Use `example_run_searchlight_projected.R` to see the integrated workflow
 4. Refer to `example_optimize_hrf_mvpa.R` for advanced optimization scenarios
