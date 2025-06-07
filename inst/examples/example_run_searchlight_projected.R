@@ -32,7 +32,7 @@ hrf_basis <- matrix(
 )
 
 # Run projected searchlight (returns components if rMVPA not available)
-result <- run_projected_searchlight(
+result <- run_searchlight_projected(
   Y = Y,
   event_model = event_model,
   hrf_basis_matrix = hrf_basis,
@@ -62,7 +62,7 @@ if (is.list(result) && "searchlight_fun" %in% names(result)) {
 
 ## Example 2: Using different adaptive methods
 # With Empirical Bayes adaptation
-result_eb <- run_projected_searchlight(
+result_eb <- run_searchlight_projected(
   Y = Y,
   event_model = event_model,
   hrf_basis_matrix = hrf_basis,
@@ -73,7 +73,7 @@ result_eb <- run_projected_searchlight(
 )
 
 # With local cross-validation
-result_cv <- run_projected_searchlight(
+result_cv <- run_searchlight_projected(
   Y = Y,
   event_model = event_model,
   hrf_basis_matrix = hrf_basis,
@@ -102,7 +102,7 @@ flexible_hrf <- function(theta_params, time_vector) {
 }
 
 # Run with specific HRF parameters
-result_flex <- run_projected_searchlight(
+result_flex <- run_searchlight_projected(
   Y = Y,
   event_model = event_model,
   hrf_basis_func = flexible_hrf,
@@ -114,7 +114,7 @@ result_flex <- run_projected_searchlight(
 
 ## Example 4: Integrated pipeline with all options
 # This demonstrates the full pipeline with diagnostics
-result_full <- run_projected_searchlight(
+result_full <- run_searchlight_projected(
   Y = Y,
   event_model = event_model,
   hrf_basis_matrix = hrf_basis,
@@ -147,7 +147,7 @@ idx <- sample(length(Y_large_sparse), size = 50000)
 Y_large_sparse[idx] <- rnorm(50000)
 
 # This will use sparse operations throughout
-result_large <- run_projected_searchlight(
+result_large <- run_searchlight_projected(
   Y = as.matrix(Y_large_sparse[, 1:100]),  # Use subset for example
   event_model = large_event_model,
   hrf_basis_matrix = hrf_basis,

@@ -13,22 +13,17 @@ Y <- matrix(1, nrow = 6, ncol = 2)
 # Test make_rmvpa_searchlight_fun for different return formats
 
 test_that("make_rmvpa_searchlight_fun returns expected formats", {
-  fun_mat <- make_rmvpa_searchlight_fun(em, proj, length(em$onsets),
-                                        ncol(basis),
-                                        return_format = "matrix")
+  spec <- projection_spec(em, proj, length(em$onsets), ncol(basis))
+  fun_mat <- make_rmvpa_searchlight_fun(spec, return_format = "matrix")
   res_mat <- fun_mat(Y)
   expect_equal(dim(res_mat), c(length(em$onsets), ncol(Y)))
 
-  fun_mvpa <- make_rmvpa_searchlight_fun(em, proj, length(em$onsets),
-                                         ncol(basis),
-                                         return_format = "mvpa_data")
+  fun_mvpa <- make_rmvpa_searchlight_fun(spec, return_format = "mvpa_data")
   res_mvpa <- fun_mvpa(Y)
   expect_equal(res_mvpa$data, res_mat)
   expect_equal(res_mvpa$nobs, length(em$onsets))
 
-  fun_list <- make_rmvpa_searchlight_fun(em, proj, length(em$onsets),
-                                         ncol(basis),
-                                         return_format = "list")
+  fun_list <- make_rmvpa_searchlight_fun(spec, return_format = "list")
   res_list <- fun_list(Y)
   expect_equal(res_list$data, res_mat)
   expect_true(is.numeric(res_list$lambda_sl))
