@@ -94,6 +94,8 @@ project_trials <- function(Y,
 
 #' Run MVPA searchlight analysis with projection
 #'
+#' @deprecated Use `run_searchlight()` with an `fmridataset`.
+#'
 #' High-level wrapper that combines projection with rMVPA searchlight analysis.
 #' Handles all the integration details automatically.
 #'
@@ -108,13 +110,14 @@ project_trials <- function(Y,
 #' @return Searchlight results with performance maps
 #' @export
 mvpa_searchlight <- function(Y,
-                            event_model, 
+                            event_model,
                             mask,
                             radius = 3,
                             classifier = "sda_notune",
                             cross_validation = NULL,
                             projection_opts = list(),
                             n_cores = 1) {
+  .Deprecated("run_searchlight")
   
   # Check dependencies
   if (!requireNamespace("rMVPA", quietly = TRUE)) {
