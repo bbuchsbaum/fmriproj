@@ -22,5 +22,8 @@ test_that("run_searchlight errors without rMVPA", {
 })
 
 test_that("run_regional errors without rMVPA", {
-  expect_error(run_regional(Y, em, mask), "rMVPA package required")
+  expect_error(
+    run_regional(fmri_dset, region_mask = mask, y_formula = ~y, block_formula = ~block),
+    "rMVPA package required"
+  )
 })
