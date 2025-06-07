@@ -1,0 +1,67 @@
+---
+title: "A Unified Workflow: From fmridataset to MVPA Results"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{A Unified Workflow: From fmridataset to MVPA Results}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include=FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+```
+
+## Overview
+
+This vignette demonstrates the streamlined analysis pipeline using
+`fmridataset` objects with `fmriproj`. A single dataset encapsulates the
+time-series, mask and event information which is then passed directly to
+`run_searchlight()` or `run_regional()`.
+
+## Creating an fmridataset
+
+```{r}
+# simulate small data for illustration
+Y <- matrix(rnorm(1000), nrow = 100)
+mask <- rep(TRUE, 10)
+events <- data.frame(
+  onset = seq(1, 100, by = 5),
+  condition = rep(c("A", "B"), each = 10),
+  run = 1
+)
+
+library(fmridataset)
+dset <- matrix_dataset(
+  Y, mask = mask,
+  event_table = events,
+  sampling_frame = data.frame(block = 1, blocklens = nrow(Y))
+)
+```
+
+## Running a Searchlight Analysis
+
+```{r eval=FALSE}
+sl_res <- fmriproj::run_searchlight(
+  dset,
+  radius = 2,
+  y_formula = ~condition,
+  block_formula = ~run
+)
+```
+
+## Running a Regional Analysis
+
+```{r eval=FALSE}
+roi_res <- fmriproj::run_regional(
+  dset,
+  region_mask = mask,
+  y_formula = ~condition,
+  block_formula = ~run
+)
+```
+
+Both functions automatically perform trial projection and interface
+with `rMVPA` to produce MVPA results.

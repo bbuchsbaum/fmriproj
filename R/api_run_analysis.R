@@ -15,6 +15,25 @@
 #' @param ... Additional arguments passed to `rMVPA::run_searchlight`
 #'
 #' @return An object of class `searchlight_result`
+#' @examples
+#' ## create a simple in-memory dataset
+#' Y <- matrix(rnorm(1000), nrow = 100)
+#' mask <- rep(TRUE, 10)
+#' events <- data.frame(
+#'   onset = seq(1, 100, by = 5),
+#'   condition = rep(c("A", "B"), each = 10),
+#'   run = 1
+#' )
+#' dset <- fmridataset::matrix_dataset(
+#'   Y, mask = mask,
+#'   event_table = events,
+#'   sampling_frame = data.frame(block = 1, blocklens = nrow(Y))
+#' )
+#' sl <- run_searchlight(
+#'   dset, radius = 2,
+#'   y_formula = ~condition,
+#'   block_formula = ~run
+#' )
 #' @export
 run_searchlight <- function(fmri_dset,
                             radius = 3,
@@ -107,6 +126,26 @@ run_searchlight <- function(fmri_dset,
 #' @param ... Additional arguments passed to `rMVPA::run_regional`
 #'
 #' @return An object of class `regional_mvpa_result`
+#' @examples
+#' ## create a dataset and region mask
+#' Y <- matrix(rnorm(1000), nrow = 100)
+#' mask <- rep(TRUE, 10)
+#' roi  <- mask
+#' events <- data.frame(
+#'   onset = seq(1, 100, by = 5),
+#'   condition = rep(c("A", "B"), each = 10),
+#'   run = 1
+#' )
+#' dset <- fmridataset::matrix_dataset(
+#'   Y, mask = mask,
+#'   event_table = events,
+#'   sampling_frame = data.frame(block = 1, blocklens = nrow(Y))
+#' )
+#' res <- run_regional(
+#'   dset, region_mask = roi,
+#'   y_formula = ~condition,
+#'   block_formula = ~run
+#' )
 #' @export
 run_regional <- function(fmri_dset,
                          region_mask,
