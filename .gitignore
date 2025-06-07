@@ -58,3 +58,7 @@ rsconnect/
 
 # Package build artifacts
 man/*.Rd 
+# Compiled files in src folder
+src/*.o
+src/*.so
+

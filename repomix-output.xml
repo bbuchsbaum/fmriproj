@@ -45,6 +45,7 @@ The content is organized as follows:
 <directory_structure>
 R/
   adaptive_ridge_projector.R
+  api_run_analysis.R
   build_projector.R
   classes.R
   collapse_beta.R
@@ -53,13 +54,14 @@ R/
   fmriproj-package.R
   hrf_basis_spmg3_theta.R
   methods.R
-  mvpa_projected_searchlight.R
   optimize_joint_hrf_mvpa.R
   progressive_projection.R
+  projection_spec.R
   rcpp_helpers.R
   RcppExports.R
   rmvpa_compatibility.R
-  rmvpa_wrappers.R
+  rMVPA_integration.R
+  train_model_wrapper.R
   trialwise_design.R
   user_friendly_wrappers.R
   utils.R
@@ -80,13 +82,14 @@ tests/
     test-integration-pipeline.R
     test-ls-svd-hrf-recovery.R
     test-make-trialwise-X.R
-    test-mvpa-projected-searchlight.R
     test-optimize-joint-hrf.R
     test-package.R
     test-pp.R
     test-print-methods.R
     test-projection-recovery.R
     test-rcpp-helpers.R
+    test-rmvpa-wrappers.R
+    test-run-api.R
   testthat.R
 DESCRIPTION
 </directory_structure>
@@ -142,344 +145,6 @@ print.fr_projector <- function(x, ...) {
 }
 </file>
 
-<file path="R/user_friendly_wrappers.R">
-#' Project trials from time-series data
-#'
-#' A user-friendly wrapper that handles the complete projection pipeline
-#' in one function call. This is the simplest way to get trial patterns
-#' from fMRI time-series data.
-#'
-#' @param Y Time-series data matrix (time x voxels)
-#' @param event_model Event model from fmrireg or a list with onsets
-#' @param lambda_method Method for adaptive regularization: "none", "EB", or "CV"
-#' @param collapse_method Method for combining HRF bases: "rss", "pc", or "optim"
-#' @param hrf_basis Optional custom HRF basis matrix
-#' @param verbose Print progress messages
-#' @return Matrix of trial patterns (trials x voxels)
-#' @export
-#' @examples
-#' # Simple usage
-#' trial_patterns <- project_trials(bold_data, event_model)
-#' 
-#' # With adaptive regularization
-#' trial_patterns <- project_trials(bold_data, event_model, 
-#'                                  lambda_method = "EB")
-project_trials <- function(Y, 
-                          event_model,
-                          lambda_method = c("EB", "none", "CV"),
-                          collapse_method = c("rss", "pc", "optim"),
-                          hrf_basis = NULL,
-                          verbose = TRUE) {
-  
-  lambda_method <- match.arg(lambda_method)
-  collapse_method <- match.arg(collapse_method)
-  
-  if (verbose) message("Building design matrix...")
-  
-  # Step 1: Design matrix
-  design <- build_design_matrix(
-    event_model = event_model,
-    hrf_basis_matrix = hrf_basis
-  )
-  
-  if (verbose) message("Creating projector...")
-  
-  # Step 2: Projector
-  lambda_global <- switch(lambda_method,
-                         none = 0,
-                         EB = 0.1,
-                         CV = 0.1)
-  
-  projector <- build_projector(
-    X_theta = design$X,
-    lambda_global = lambda_global
-  )
-  
-  if (verbose) message("Projecting data...")
-  
-  # Step 3: Project
-  X_dense <- if (lambda_method %in% c("EB", "CV")) {
-    as.matrix(design$X)
-  } else NULL
-  
-  proj_result <- adaptive_ridge_projector(
-    Y_sl = Y,
-    projector_components = projector,
-    lambda_adaptive_method = lambda_method,
-    lambda_floor_global = lambda_global,
-    X_theta_for_EB_residuals = X_dense
-  )
-  
-  if (verbose) message("Collapsing HRF components...")
-  
-  # Step 4: Collapse
-  n_trials <- length(event_model$onsets)
-  k_bases <- ncol(design$hrf_info$basis)
-  
-  collapsed <- collapse_beta(
-    Z_sl_raw = proj_result$Z_sl_raw,
-    N_trials = n_trials,
-    K_hrf_bases = k_bases,
-    method = collapse_method
-  )
-  
-  if (verbose) message("Done!")
-  
-  return(collapsed$A_sl)
-}
-
-
-#' Run MVPA searchlight analysis with projection
-#'
-#' High-level wrapper that combines projection with rMVPA searchlight analysis.
-#' Handles all the integration details automatically.
-#'
-#' @param Y Time-series data (time x voxels)
-#' @param event_model Event model with trial timing
-#' @param mask Brain mask defining searchlight centers
-#' @param radius Searchlight radius in voxels
-#' @param classifier Name of classifier from MVPAModels (e.g., "sda_notune")
-#' @param cross_validation Cross-validation scheme (rMVPA object)
-#' @param projection_opts List of projection options
-#' @param n_cores Number of parallel cores to use
-#' @return Searchlight results with performance maps
-#' @export
-mvpa_searchlight <- function(Y,
-                            event_model, 
-                            mask,
-                            radius = 3,
-                            classifier = "sda_notune",
-                            cross_validation = NULL,
-                            projection_opts = list(),
-                            n_cores = 1) {
-  
-  # Check dependencies
-  if (!requireNamespace("rMVPA", quietly = TRUE)) {
-    stop("rMVPA package required. Install with: devtools::install_github('bbuchsbaum/rMVPA')")
-  }
-  
-  # Set default projection options
-  proj_defaults <- list(
-    lambda_adaptive_method = "EB",
-    collapse_method = "rss",
-    use_progressive_projection = FALSE,
-    pp_dims = NULL
-  )
-  
-  projection_opts <- modifyList(proj_defaults, projection_opts)
-  
-  # Create rMVPA dataset
-  dataset <- rMVPA::mvpa_dataset(Y, mask)
-  
-  # Create design
-  design <- rMVPA::mvpa_design(
-    y_train = event_model$conditions,
-    block_var = event_model$blocks
-  )
-  
-  # Set up cross-validation if not provided
-  if (is.null(cross_validation)) {
-    if (!is.null(event_model$blocks)) {
-      cross_validation <- rMVPA::blocked_cross_validation(event_model$blocks)
-    } else {
-      cross_validation <- rMVPA::kfold_cross_validation(
-        length(event_model$conditions), 
-        nfolds = 5
-      )
-    }
-  }
-  
-  # Create model
-  model <- rMVPA::mvpa_model(
-    model = rMVPA::load_model(classifier),
-    dataset = dataset,
-    design = design,
-    crossval = cross_validation
-  )
-  
-  # Add progressive projection if requested
-  if (projection_opts$use_progressive_projection && !is.null(projection_opts$pp_dims)) {
-    model$feature_selector <- pp_feature_selector(
-      method = "LDA",
-      dims = projection_opts$pp_dims
-    )
-  }
-  
-  # Run searchlight with projection
-  run_searchlight_projected(
-    model_spec = model,
-    radius = radius,
-    method = "standard",
-    projection_opts = projection_opts,
-    .cores = n_cores
-  )
-}
-
-
-#' Check data and event model compatibility
-#'
-#' Diagnostic function to verify your data and events are properly formatted
-#' before running analyses.
-#'
-#' @param Y Time-series data
-#' @param event_model Event model
-#' @param TR Repetition time in seconds
-#' @return Invisible TRUE if all checks pass, otherwise errors/warnings
-#' @export
-check_data_compatibility <- function(Y, event_model, TR = NULL) {
-  
-  # Check dimensions
-  if (!is.matrix(Y) && !inherits(Y, "Matrix")) {
-    stop("Y must be a matrix (time x voxels)")
-  }
-  
-  n_time <- nrow(Y)
-  n_voxels <- ncol(Y)
-  
-  cat("Data dimensions:\n")
-  cat("  Time points:", n_time, "\n")
-  cat("  Voxels:", n_voxels, "\n")
-  
-  # Check event model
-  if (!is.list(event_model)) {
-    stop("event_model must be a list")
-  }
-  
-  required_fields <- c("onsets")
-  missing <- setdiff(required_fields, names(event_model))
-  if (length(missing) > 0) {
-    stop("event_model missing required fields: ", paste(missing, collapse = ", "))
-  }
-  
-  n_trials <- length(event_model$onsets)
-  cat("\nEvent model:\n")
-  cat("  Trials:", n_trials, "\n")
-  
-  # Check timing
-  if (!is.null(TR)) {
-    max_onset <- max(event_model$onsets)
-    scan_duration <- n_time * TR
-    
-    if (max_onset >= scan_duration) {
-      stop("Latest trial onset (", max_onset, "s) exceeds scan duration (", 
-           scan_duration, "s)")
-    }
-    
-    # Check trial spacing
-    trial_spacing <- diff(sort(event_model$onsets))
-    min_spacing <- min(trial_spacing)
-    
-    cat("  Min trial spacing:", round(min_spacing, 1), "s\n")
-    
-    if (min_spacing < 2 * TR) {
-      warning("Trials may be too close together for reliable separation")
-    }
-  }
-  
-  # Check conditions if provided
-  if (!is.null(event_model$conditions)) {
-    n_conditions <- length(unique(event_model$conditions))
-    cat("  Conditions:", n_conditions, "\n")
-    print(table(event_model$conditions))
-  }
-  
-  # Check for common issues
-  if (n_trials > n_time / 2) {
-    warning("Very high trial density - consider longer runs")
-  }
-  
-  if (n_voxels < 100) {
-    warning("Very few voxels - is this an ROI analysis?")
-  }
-  
-  # Test basic projection
-  cat("\nTesting projection pipeline...")
-  
-  test_result <- tryCatch({
-    small_test <- project_trials(
-      Y[, 1:min(100, n_voxels)], 
-      event_model,
-      verbose = FALSE
-    )
-    cat(" SUCCESS\n")
-    cat("  Output dimensions:", dim(test_result), "\n")
-    TRUE
-  }, error = function(e) {
-    cat(" FAILED\n")
-    cat("  Error:", e$message, "\n")
-    FALSE
-  })
-  
-  invisible(test_result)
-}
-
-
-#' Plot searchlight diagnostics
-#'
-#' Visualize diagnostic information for a specific searchlight to understand
-#' the projection process.
-#'
-#' @param results Results object with diagnostics
-#' @param voxel Central voxel index
-#' @param plot_type Type of plot: "weights", "lambda", "patterns"
-#' @export
-plot_searchlight_diagnostics <- function(results, 
-                                       voxel, 
-                                       plot_type = c("weights", "lambda", "patterns")) {
-  
-  if (!requireNamespace("ggplot2", quietly = TRUE)) {
-    stop("ggplot2 required for plotting")
-  }
-  
-  plot_type <- match.arg(plot_type)
-  
-  # Extract diagnostics for this searchlight
-  sl_idx <- get_searchlight_index(results, voxel)
-  diag <- results$diagnostics[[sl_idx]]
-  
-  if (is.null(diag)) {
-    stop("No diagnostics available. Run with diagnostics = TRUE")
-  }
-  
-  if (plot_type == "weights") {
-    # Plot HRF collapse weights
-    weights_df <- data.frame(
-      basis = factor(1:length(diag$w_sl)),
-      weight = diag$w_sl
-    )
-    
-    p <- ggplot2::ggplot(weights_df, ggplot2::aes(x = basis, y = weight)) +
-      ggplot2::geom_bar(stat = "identity") +
-      ggplot2::labs(title = "HRF Collapse Weights",
-                    x = "Basis Function",
-                    y = "Weight") +
-      ggplot2::theme_minimal()
-    
-  } else if (plot_type == "lambda") {
-    # Show adaptive lambda in context
-    all_lambdas <- sapply(results$diagnostics, function(d) d$lambda_sl)
-    
-    p <- ggplot2::ggplot(data.frame(lambda = all_lambdas), 
-                         ggplot2::aes(x = lambda)) +
-      ggplot2::geom_histogram(bins = 30) +
-      ggplot2::geom_vline(xintercept = diag$lambda_sl, 
-                         color = "red", linewidth = 2) +
-      ggplot2::scale_x_log10() +
-      ggplot2::labs(title = "Adaptive Lambda Distribution",
-                    subtitle = "Red line = this searchlight",
-                    x = "Lambda (log scale)",
-                    y = "Count") +
-      ggplot2::theme_minimal()
-    
-  } else if (plot_type == "patterns") {
-    # Visualization would need actual pattern data
-    stop("Pattern plotting not yet implemented")
-  }
-  
-  return(p)
-}
-</file>
-
 <file path="R/utils.R">
 cap_diagnostics <- function(diag_list, memory_limit = getOption("fmriproj.diagnostics_memory_limit", 1e7)) {
   if (is.null(diag_list)) return(NULL)
@@ -491,473 +156,45 @@ cap_diagnostics <- function(diag_list, memory_limit = getOption("fmriproj.diagno
 }
 </file>
 
-<file path="tests/testthat/test-collapse-optimization.R">
-test_that("collapse methods correctly combine HRF basis functions", {
-  # This test verifies that different collapse methods (RSS, PC, optim)
-  # produce sensible results and that optimized weights improve classification
-  
-  set.seed(789)
-  
-  # Create a scenario where different HRF components matter
-  n_trials <- 40
-  n_voxels <- 30
-  k_bases <- 3
-  
-  # Create two classes with different HRF characteristics
-  # Class 1: Standard HRF timing (high canonical, low derivatives)
-  # Class 2: Shifted HRF timing (lower canonical, higher derivatives)
-  
-  class_labels <- rep(c(0, 1), each = n_trials/2)
-  
-  # Generate Z_sl_raw with class-specific patterns
-  Z_sl_raw <- matrix(0, nrow = n_trials * k_bases, ncol = n_voxels)
-  
-  for (trial in 1:n_trials) {
-    for (voxel in 1:n_voxels) {
-      base_signal <- rnorm(1)
-      
-      if (class_labels[trial] == 0) {
-        # Class 0: Standard timing
-        Z_sl_raw[(trial-1)*k_bases + 1, voxel] <- base_signal * 2.0  # Strong canonical
-        Z_sl_raw[(trial-1)*k_bases + 2, voxel] <- base_signal * 0.3  # Weak temporal deriv
-        Z_sl_raw[(trial-1)*k_bases + 3, voxel] <- base_signal * 0.2  # Weak dispersion
-      } else {
-        # Class 1: Shifted timing  
-        Z_sl_raw[(trial-1)*k_bases + 1, voxel] <- base_signal * 1.0  # Moderate canonical
-        Z_sl_raw[(trial-1)*k_bases + 2, voxel] <- base_signal * 1.5  # Strong temporal deriv
-        Z_sl_raw[(trial-1)*k_bases + 3, voxel] <- base_signal * 0.8  # Moderate dispersion
-      }
-    }
+<file path="tests/testthat/test-cached-optim.R">
+test_that("make_cached_fn_gr caches results", {
+  counter <- 0
+  fn_gr <- function(w) {
+    counter <<- counter + 1
+    list(value = sum(w), grad = rep(1, length(w)))
   }
-  
-  # Add noise
-  Z_sl_raw <- Z_sl_raw + matrix(rnorm(length(Z_sl_raw), sd = 0.3), 
-                                 nrow = nrow(Z_sl_raw))
-  
-  # Test 1: RSS collapse (unsupervised)
-  result_rss <- collapse_beta(
-    Z_sl_raw = Z_sl_raw,
-    N_trials = n_trials,
-    K_hrf_bases = k_bases,
-    method = "rss",
-    diagnostics = TRUE
-  )
-  
-  expect_equal(dim(result_rss$A_sl), c(n_trials, n_voxels))
-  
-  # RSS should produce all positive values
-  expect_true(all(result_rss$A_sl >= 0),
-              info = "RSS collapse should produce non-negative values")
-  
-  # Test 2: PC collapse (unsupervised, SNR-optimal)
-  result_pc <- collapse_beta(
-    Z_sl_raw = Z_sl_raw,
-    N_trials = n_trials,
-    K_hrf_bases = k_bases,
-    method = "pc",
-    diagnostics = TRUE
-  )
-  
-  # PC weights should be normalized
-  expect_equal(sum(result_pc$w_sl^2), 1, tolerance = 1e-6,
-               info = "PC weights should be unit normalized")
-  
-  # PC can produce negative values (unlike RSS)
-  expect_true(any(result_pc$A_sl < 0),
-              info = "PC collapse can produce negative values")
-  
-  # Test 3: Optimized collapse (supervised)
-  
-  # Define a simple classifier for optimization
-  classifier_func <- function(A_sl, labels) {
-    # Linear discriminant classifier
-    n <- nrow(A_sl)
-    
-    # Compute class means
-    mean_0 <- colMeans(A_sl[labels == 0, , drop = FALSE])
-    mean_1 <- colMeans(A_sl[labels == 1, , drop = FALSE])
-    
-    # LDA direction
-    diff_means <- mean_1 - mean_0
-    
-    # Project data onto discriminant direction
-    scores <- A_sl %*% diff_means
-    
-    # Compute loss (negative correlation with true labels)
-    loss <- -cor(scores, labels)
-    
-    # Gradient w.r.t. A_sl
-    grad_scores <- -1/n * (labels - mean(labels)) / sd(labels) / sd(scores)
-    grad <- grad_scores %*% t(diff_means)
-    
-    list(loss = loss, grad = grad)
-  }
-  
-  result_optim <- collapse_beta(
-    Z_sl_raw = Z_sl_raw,
-    N_trials = n_trials,
-    K_hrf_bases = k_bases,
-    method = "optim",
-    labels_for_w_optim = class_labels,
-    classifier_for_w_optim = classifier_func,
-    optim_w_params = list(maxit = 20, method = "L-BFGS-B"),
-    diagnostics = TRUE
-  )
-  
-  # Optimized weights should be normalized
-  expect_equal(sum(result_optim$w_sl^2), 1, tolerance = 1e-6,
-               info = "Optimized weights should be unit normalized")
-  
-  # Test classification performance with each collapse method
-  evaluate_classification <- function(A_sl, labels, method_name) {
-    # Simple leave-one-out classification
-    correct <- 0
-    
-    for (i in 1:n_trials) {
-      # Training data (all except i)
-      A_train <- A_sl[-i, , drop = FALSE]
-      y_train <- labels[-i]
-      
-      # Test point
-      A_test <- A_sl[i, , drop = FALSE]
-      y_test <- labels[i]
-      
-      # Compute class means
-      mean_0 <- colMeans(A_train[y_train == 0, , drop = FALSE])
-      mean_1 <- colMeans(A_train[y_train == 1, , drop = FALSE])
-      
-      # Classify based on nearest mean
-      dist_0 <- sum((A_test - mean_0)^2)
-      dist_1 <- sum((A_test - mean_1)^2)
-      
-      pred <- ifelse(dist_0 < dist_1, 0, 1)
-      correct <- correct + (pred == y_test)
-    }
-    
-    accuracy <- correct / n_trials
-    cat("\n", method_name, "accuracy:", accuracy, "\n")
-    accuracy
-  }
-  
-  acc_rss <- evaluate_classification(result_rss$A_sl, class_labels, "RSS")
-  acc_pc <- evaluate_classification(result_pc$A_sl, class_labels, "PC")
-  acc_optim <- evaluate_classification(result_optim$A_sl, class_labels, "Optimized")
-  
-  # Optimized should perform better than unsupervised methods
-  expect_true(acc_optim >= acc_rss,
-              info = "Optimized collapse should match or beat RSS")
-  expect_true(acc_optim >= acc_pc,
-              info = "Optimized collapse should match or beat PC")
-  
-  # All methods should be above chance
-  expect_true(acc_rss > 0.5,
-              info = "RSS should be above chance")
-  expect_true(acc_pc > 0.5,
-              info = "PC should be above chance")
-  expect_true(acc_optim > 0.6,
-              info = "Optimized should be well above chance")
-  
-  # Examine the learned weights
-  cat("\nLearned weights:\n")
-  cat("RSS (implicit):", "equal weighting\n")
-  cat("PC weights:", round(result_pc$w_sl, 3), "\n")
-  cat("Optimized weights:", round(result_optim$w_sl, 3), "\n")
-  
-  # For this specific problem, optimized weights should emphasize
-  # the temporal derivative (component 2) since it differentiates classes
-  expect_true(abs(result_optim$w_sl[2]) > abs(result_optim$w_sl[3]),
-              info = "Temporal derivative should have high weight")
-  
-  # Test edge cases
-  
-  # Edge case 1: Single basis function (no collapse needed)
-  Z_single <- matrix(rnorm(n_trials * n_voxels), nrow = n_trials)
-  result_single <- collapse_beta(
-    Z_sl_raw = Z_single,
-    N_trials = n_trials,
-    K_hrf_bases = 1,
-    method = "rss"
-  )
-  
-  # Should essentially pass through
-  expect_equal(result_single$A_sl, abs(Z_single),
-               info = "Single basis RSS should just take absolute value")
-  
-  # Edge case 2: Very few observations for PC
-  Z_tiny <- matrix(rnorm(2 * 2 * 3), nrow = 2 * 2)  # 2 trials, 2 bases, 3 voxels
-  expect_warning({
-    result_tiny <- collapse_beta(
-      Z_sl_raw = Z_tiny,
-      N_trials = 2,
-      K_hrf_bases = 2,
-      method = "pc"
-    )
-  }, "Not enough observations")
-  
-  # Should fall back gracefully
-  expect_equal(dim(result_tiny$A_sl), c(2, 3))
+  cache <- fmriproj:::make_cached_fn_gr(fn_gr)
+  w1 <- c(1, 2)
+  v1 <- cache$fn(w1)
+  g1 <- cache$gr(w1)
+  expect_equal(counter, 1)
+  expect_equal(v1, sum(w1))
+  expect_equal(g1, rep(1, length(w1)))
+  g1b <- cache$gr(w1)
+  expect_equal(counter, 1)
+  w2 <- c(2, 3)
+  v2 <- cache$fn(w2)
+  expect_equal(counter, 2)
+  g2 <- cache$gr(w2)
+  expect_equal(counter, 2)
+  expect_equal(v2, sum(w2))
+  expect_equal(g2, rep(1, length(w2)))
+})
+</file>
+
+<file path="tests/testthat/test-class-checkers.R">
+context("class checking helpers")
+
+test_that("is.fr_design_matrix identifies objects", {
+  dm <- fr_design_matrix(matrix(1, nrow = 1, ncol = 1))
+  expect_true(is.fr_design_matrix(dm))
+  expect_false(is.fr_design_matrix(list()))
 })
 
-
-test_that("HRF optimization improves MVPA performance on appropriate problems", {
-  # This test verifies that optimizing HRF parameters (theta) actually
-  # improves classification when there are subject/session-specific HRF differences
-  
-  set.seed(456)
-  
-  # Simulate data with non-standard HRF
-  n_time <- 150
-  n_voxels <- 100
-  n_trials <- 12
-  TR <- 2
-  
-  # True HRF has delayed peak (7s instead of typical 5s)
-  true_peak_time <- 7
-  
-  # Create two conditions with different spatial patterns
-  condition_labels <- rep(c(0, 1), each = n_trials/2)
-  
-  # Spatial patterns for each condition
-  pattern_cond0 <- rnorm(n_voxels)
-  pattern_cond0[1:50] <- pattern_cond0[1:50] + 1  # First half active
-  
-  pattern_cond1 <- rnorm(n_voxels)  
-  pattern_cond1[51:100] <- pattern_cond1[51:100] + 1  # Second half active
-  
-  # Event timing
-  trial_onsets <- seq(15, 135, length.out = n_trials)
-  event_model <- list(
-    onsets = trial_onsets,
-    n_time = n_time,
-    conditions = condition_labels
-  )
-  
-  # Generate data with true (shifted) HRF
-  generate_data_with_hrf <- function(peak_time) {
-    Y <- matrix(0, nrow = n_time, ncol = n_voxels)
-    
-    # True HRF shape
-    t_hrf <- seq(0, 20, by = TR)
-    hrf <- dgamma(t_hrf, shape = peak_time, rate = 1)
-    hrf <- hrf / max(hrf)
-    
-    # Generate signal
-    for (trial in 1:n_trials) {
-      onset_idx <- round(trial_onsets[trial] / TR)
-      
-      if (condition_labels[trial] == 0) {
-        trial_pattern <- pattern_cond0
-      } else {
-        trial_pattern <- pattern_cond1
-      }
-      
-      # Convolve with HRF
-      for (t in 1:length(hrf)) {
-        if (onset_idx + t - 1 <= n_time) {
-          Y[onset_idx + t - 1, ] <- Y[onset_idx + t - 1, ] + 
-            trial_pattern * hrf[t]
-        }
-      }
-    }
-    
-    # Add noise
-    Y + matrix(rnorm(n_time * n_voxels, sd = 1), nrow = n_time)
-  }
-  
-  Y <- generate_data_with_hrf(true_peak_time)
-  
-  # Define flexible HRF basis function  
-  flexible_hrf <- function(theta_params, time_vector) {
-    peak <- theta_params[1]
-    
-    # Main function
-    hrf_main <- dgamma(time_vector, shape = peak, rate = 1)
-    if (max(hrf_main) > 0) hrf_main <- hrf_main / max(hrf_main)
-    
-    # Derivative
-    hrf_deriv <- c(0, diff(hrf_main))
-    
-    cbind(hrf_main, hrf_deriv)
-  }
-  
-  # Inner CV function for optimization
-  inner_cv <- function(A_sl, labels = condition_labels) {
-    # Leave-one-out CV
-    correct <- 0
-    
-    for (i in 1:nrow(A_sl)) {
-      train_idx <- setdiff(1:nrow(A_sl), i)
-      
-      # LDA-style classification
-      mean_0 <- colMeans(A_sl[train_idx[labels[train_idx] == 0], ])
-      mean_1 <- colMeans(A_sl[train_idx[labels[train_idx] == 1], ])
-      
-      test_point <- A_sl[i, ]
-      dist_0 <- sum((test_point - mean_0)^2)
-      dist_1 <- sum((test_point - mean_1)^2)
-      
-      pred <- ifelse(dist_0 < dist_1, 0, 1)
-      correct <- correct + (pred == labels[i])
-    }
-    
-    # Return loss (1 - accuracy)
-    1 - (correct / nrow(A_sl))
-  }
-  
-  # Test 1: Performance with wrong HRF (standard peak at 5s)
-  wrong_theta <- c(5)  # Standard HRF peak
-  
-  design_wrong <- build_design_matrix(
-    event_model = event_model,
-    hrf_basis_func = flexible_hrf,
-    theta_params = wrong_theta
-  )
-  
-  proj_wrong <- build_projector(design_wrong$X, lambda_global = 0.1)
-  
-  result_wrong <- adaptive_ridge_projector(
-    Y_sl = Y,
-    projector_components = proj_wrong,
-    lambda_adaptive_method = "none",
-    lambda_floor_global = 0.1
-  )
-  
-  collapsed_wrong <- collapse_beta(
-    result_wrong$Z_sl_raw,
-    N_trials = n_trials,
-    K_hrf_bases = 2,
-    method = "rss"
-  )
-  
-  loss_wrong <- inner_cv(collapsed_wrong$A_sl)
-  acc_wrong <- 1 - loss_wrong
-  
-  cat("\nAccuracy with wrong HRF (peak=5s):", acc_wrong, "\n")
-  
-  # Test 2: Performance with correct HRF
-  correct_theta <- c(true_peak_time)
-  
-  design_correct <- build_design_matrix(
-    event_model = event_model,
-    hrf_basis_func = flexible_hrf,
-    theta_params = correct_theta
-  )
-  
-  proj_correct <- build_projector(design_correct$X, lambda_global = 0.1)
-  
-  result_correct <- adaptive_ridge_projector(
-    Y_sl = Y,
-    projector_components = proj_correct,
-    lambda_adaptive_method = "none",
-    lambda_floor_global = 0.1
-  )
-  
-  collapsed_correct <- collapse_beta(
-    result_correct$Z_sl_raw,
-    N_trials = n_trials,
-    K_hrf_bases = 2,
-    method = "rss"
-  )
-  
-  loss_correct <- inner_cv(collapsed_correct$A_sl)
-  acc_correct <- 1 - loss_correct
-  
-  cat("Accuracy with correct HRF (peak=7s):", acc_correct, "\n")
-  
-  # Correct HRF should give better performance
-  expect_true(acc_correct > acc_wrong,
-              info = "Correct HRF should improve classification")
-  
-  # Test 3: Optimize HRF parameters
-  result_optim <- optimize_hrf_mvpa(
-    theta_init = c(5),  # Start with wrong value
-    Y = Y,
-    event_model = event_model,
-    inner_cv_fn = inner_cv,
-    hrf_basis_func = flexible_hrf,
-    lambda_global = 0.1,
-    lambda_adaptive_method = "none",
-    collapse_method = "rss",
-    optim_method = "Brent",
-    lower = 3,
-    upper = 10,
-    diagnostics = TRUE
-  )
-  
-  optimized_peak <- result_optim$theta_hat[1]
-  
-  cat("Optimized HRF peak:", optimized_peak, "s\n")
-  cat("True HRF peak:", true_peak_time, "s\n")
-  
-  # Should recover approximately correct peak
-  expect_equal(optimized_peak, true_peak_time, tolerance = 1.5,
-               info = "Should recover approximately correct HRF peak")
-  
-  # Performance with optimized HRF should be good
-  final_loss <- result_optim$optim_details$value
-  acc_optimized <- 1 - final_loss
-  
-  cat("Accuracy with optimized HRF:", acc_optimized, "\n")
-  
-  expect_true(acc_optimized >= acc_wrong,
-              info = "Optimized HRF should match or beat wrong HRF")
-  
-  expect_true(acc_optimized > 0.7,
-              info = "Optimized HRF should achieve good accuracy")
-  
-  # Check optimization trajectory
-  if (!is.null(result_optim$diagnostics$theta_trace)) {
-    trace <- result_optim$diagnostics$theta_trace
-    
-    # Should show improvement over iterations
-    initial_loss <- trace$loss[1]
-    final_loss <- trace$loss[nrow(trace)]
-    
-    expect_true(final_loss <= initial_loss,
-                info = "Optimization should improve or maintain loss")
-    
-    # Theta should move toward true value
-    initial_theta <- trace$theta_1[1]
-    final_theta <- trace$theta_1[nrow(trace)]
-    
-    initial_error <- abs(initial_theta - true_peak_time)
-    final_error <- abs(final_theta - true_peak_time)
-    
-    expect_true(final_error < initial_error,
-                info = "Optimization should move toward true HRF")
-  }
-  
-  # Test 4: Robustness to initialization
-  # Try different starting points
-  starting_peaks <- c(3, 5, 9)
-  recovered_peaks <- numeric(length(starting_peaks))
-  
-  for (i in seq_along(starting_peaks)) {
-    result_i <- optimize_hrf_mvpa(
-      theta_init = starting_peaks[i],
-      Y = Y,
-      event_model = event_model,
-      inner_cv_fn = inner_cv,
-      hrf_basis_func = flexible_hrf,
-      lambda_global = 0.1,
-      lambda_adaptive_method = "none",
-      collapse_method = "rss",
-      optim_method = "Brent",
-      lower = 3,
-      upper = 10,
-      diagnostics = FALSE
-    )
-    
-    recovered_peaks[i] <- result_i$theta_hat[1]
-  }
-  
-  cat("\nRecovered peaks from different starting points:\n")
-  cat("Started at:", starting_peaks, "\n")
-  cat("Recovered:", round(recovered_peaks, 2), "\n")
-  
-  # Should converge to similar values
-  expect_true(sd(recovered_peaks) < 1,
-              info = "Optimization should be robust to initialization")
+test_that("is.fr_projector identifies objects", {
+  proj <- fr_projector(matrix(1, 1, 1), matrix(1, 1, 1))
+  expect_true(is.fr_projector(proj))
+  expect_false(is.fr_projector(list()))
 })
 </file>
 
@@ -1021,6 +258,64 @@ test_that("diagnostic memory ceiling works", {
 })
 </file>
 
+<file path="tests/testthat/test-make-trialwise-X.R">
+test_that("build_design_matrix constructs sparse matrix with basis matrix", {
+  em <- list(onsets = c(0L, 2L), n_time = 6L)
+  basis <- matrix(c(1, 0, 0,
+                    0, 1, 0), nrow = 3, byrow = FALSE)
+  res <- build_design_matrix(em, hrf_basis_matrix = basis)
+  X <- res$X
+  expect_s4_class(X, "dgCMatrix")
+  expect_equal(dim(X), c(6L, 6L))
+  dense <- as.matrix(X)
+  expect_equal(dense[1,1], 1)
+  expect_equal(dense[3,4], 1)
+})
+
+test_that("build_design_matrix uses hrf_basis_func and theta_params", {
+  em <- list(onsets = c(1L), n_time = 5L, basis_length = 3L)
+  hfun <- function(theta, t) {
+    matrix(theta[1] + t, nrow = 3, ncol = 1)
+  }
+  res <- build_design_matrix(em, hrf_basis_func = hfun, theta_params = c(2))
+  X <- res$X
+  dense <- as.matrix(X)
+  expect_equal(dense[2,1], 2)
+  expect_equal(dense[3,1], 3)
+})
+
+test_that("parametric modulation scales columns", {
+  em <- list(onsets = c(0L,2L), n_time = 6L,
+             modulator = c(1,2))
+  basis <- matrix(c(1,0), nrow = 2)
+  res <- build_design_matrix(em, hrf_basis_matrix = basis)
+  X <- as.matrix(res$X)
+  expect_equal(X[1,1], 1)
+  expect_equal(X[3,2], 2)
+})
+
+test_that("long HRF basis is decimated", {
+  em <- list(onsets = c(0L), n_time = 4L, basis_length = 10L)
+  basis_fun <- function(theta, t) matrix(1, nrow = length(t), ncol = 1)
+  res <- build_design_matrix(em, hrf_basis_func = basis_fun)
+  expect_equal(nrow(res$hrf_info$basis), 4L)
+})
+
+test_that("input lengths are validated", {
+  basis <- matrix(1, nrow = 2, ncol = 1)
+
+  em_amp <- list(onsets = c(0L, 2L), n_time = 6L,
+                 amplitudes = c(1))
+  expect_error(build_design_matrix(em_amp, hrf_basis_matrix = basis),
+               "amplitudes")
+
+  em_mod <- list(onsets = c(0L, 2L), n_time = 6L,
+                 modulator = c(1))
+  expect_error(build_design_matrix(em_mod, hrf_basis_matrix = basis),
+               "modulator")
+})
+</file>
+
 <file path="tests/testthat/test-package.R">
 test_that("package loads correctly", {
   expect_true(requireNamespace("fmriproj", quietly = TRUE))
@@ -1052,6 +347,444 @@ test_that("print.fr_projector outputs summary", {
   dm <- build_design_matrix(em, hrf_basis_matrix = basis)
   proj <- build_projector(dm$X)
   expect_snapshot_output(print(proj))
+})
+</file>
+
+<file path="tests/testthat/test-rcpp-helpers.R">
+test_that("make_spmat_triplet creates expected sparse matrix", {
+  i <- c(0L, 1L)
+  j <- c(0L, 1L)
+  x <- c(1, 2)
+  sm <- make_spmat_triplet(i, j, x, 2L, 2L)
+  expect_s4_class(sm, "dgCMatrix")
+  expect_equal(as.matrix(sm), matrix(c(1, 0, 0, 2), 2, 2))
+})
+
+test_that("spmat_dense_prod multiplies correctly", {
+  i <- c(0L, 1L)
+  j <- c(0L, 1L)
+  x <- c(1, 2)
+  sm <- make_spmat_triplet(i, j, x, 2L, 2L)
+  dense <- matrix(1, 2, 2)
+  res <- spmat_dense_prod(sm, dense)
+  expect_equal(res, as.matrix(sm %*% dense))
+})
+
+test_that("make_spmat_triplet validates inputs", {
+  expect_error(make_spmat_triplet(0L, c(0L, 1L), 1, 2L, 2L))
+  expect_error(make_spmat_triplet(c(0L, NA), c(0L, 1L), c(1, 2), 2L, 2L),
+               "must not contain NA")
+  expect_error(make_spmat_triplet(c(-1L, 0L), c(0L, 1L), c(1, 2), 2L, 2L),
+               "non-negative")
+  expect_error(make_spmat_triplet(c(0L, 1L), c(0L, 2L), c(1, 2), 2L, 2L),
+               "out of range")
+})
+
+test_that("spmat_dense_prod validates inputs", {
+  sm <- make_spmat_triplet(0L, 0L, 1, 2L, 2L)
+  expect_error(spmat_dense_prod(as.matrix(sm), matrix(1, 2, 2)), "dgCMatrix")
+  expect_error(spmat_dense_prod(sm, 1), "matrix")
+  expect_error(spmat_dense_prod(sm, matrix(1, 3, 2)), "Non-conformable")
+})
+</file>
+
+<file path="tests/testthat.R">
+# This file is part of the standard setup for testthat.
+# It is recommended that you do not modify it.
+#
+# Where should you do additional test configuration?
+# Learn more about the roles of various files in:
+# * https://r-pkgs.org/testing-design.html#testing-design-tests-files
+
+library(testthat)
+library(fmriproj)
+
+test_check("fmriproj")
+</file>
+
+<file path="R/projection_spec.R">
+#' Projection specification object
+#'
+#' Convenience constructor that bundles all parameters required for
+#' on-the-fly projection when interfacing with rMVPA.
+#'
+#' @param event_model Event model describing trial onsets.
+#' @param projector_components Pre-computed projector from `build_projector()`.
+#' @param N_trials Number of trials in the event model.
+#' @param K_hrf Number of HRF basis functions.
+#' @param lambda_adaptive_method Adaptive lambda method.
+#' @param lambda_global Global ridge penalty used when building the projector.
+#' @param collapse_method Method for `collapse_beta()`.
+#' @param X_theta_dense Optional dense design matrix for empirical Bayes.
+#'
+#' @return An object of class `projection_spec`.
+#' @export
+projection_spec <- function(event_model,
+                            projector_components,
+                            N_trials,
+                            K_hrf,
+                            lambda_adaptive_method = "none",
+                            lambda_global = 0,
+                            collapse_method = "rss",
+                            X_theta_dense = NULL) {
+  structure(
+    list(
+      event_model = event_model,
+      projector_components = projector_components,
+      N_trials = N_trials,
+      K_hrf = K_hrf,
+      lambda_adaptive_method = lambda_adaptive_method,
+      lambda_global = lambda_global,
+      collapse_method = collapse_method,
+      X_theta_dense = X_theta_dense
+    ),
+    class = "projection_spec"
+  )
+}
+</file>
+
+<file path="R/RcppExports.R">
+# Generated by using Rcpp::compileAttributes() -> do not edit by hand
+# Generator token: 10BE3573-1514-4C36-9D1C-5A225CD40393
+
+triplet_to_spmat_cpp <- function(i, j, x, nrow, ncol) {
+    .Call(`_fmriproj_triplet_to_spmat_cpp`, i, j, x, nrow, ncol)
+}
+
+spmat_dense_prod_cpp <- function(A, B) {
+    .Call(`_fmriproj_spmat_dense_prod_cpp`, A, B)
+}
+</file>
+
+<file path="R/rMVPA_integration.R">
+#' Projected searchlight analysis with rMVPA
+#'
+#' A wrapper that makes fmriproj projection work seamlessly with rMVPA's
+#' run_searchlight function. Designed to minimize changes to rMVPA code.
+#'
+#' @param model_spec An rMVPA model specification
+#' @param radius Searchlight radius
+#' @param method Searchlight method ("standard" or "randomized")
+#' @param projection_opts List of projection options (lambda_method, collapse_method, etc.)
+#' @param ... Additional arguments passed to rMVPA::run_searchlight
+#' @return rMVPA searchlight result object
+#' @export
+run_searchlight_projected <- function(model_spec, 
+                                     radius = 3,
+                                     method = "standard",
+                                     projection_opts = list(),
+                                     ...) {
+  
+  # Extract time-series data from model_spec
+  Y <- get_timeseries_from_model_spec(model_spec)
+  event_model <- get_event_model_from_design(model_spec$design)
+  
+  # Set default projection options
+  proj_opts <- modifyList(
+    list(
+      lambda_adaptive_method = "EB",
+      collapse_method = "rss",
+      lambda_global = 0.1
+    ),
+    projection_opts
+  )
+  
+  # Build projection components once
+  design <- build_design_matrix(event_model)
+  proj_comp <- build_projector(design$X, lambda_global = proj_opts$lambda_global)
+  
+  # Bundle projection parameters
+  spec <- projection_spec(
+    event_model = event_model,
+    projector_components = proj_comp,
+    N_trials = length(event_model$onsets),
+    K_hrf = ncol(design$hrf_info$basis),
+    lambda_adaptive_method = proj_opts$lambda_adaptive_method,
+    lambda_global = proj_opts$lambda_global,
+    collapse_method = proj_opts$collapse_method
+  )
+
+  # Create searchlight function that returns what rMVPA expects
+  sl_fun <- make_rmvpa_searchlight_fun(
+    spec,
+    return_format = "matrix"  # rMVPA expects simple matrix
+  )
+  
+  # Replace the data in model_spec with our projection function
+  # This is the key: we intercept at the data extraction level
+  model_spec$dataset <- wrap_as_projecting_dataset(
+    Y, sl_fun, model_spec$dataset
+  )
+  
+  # Now run standard rMVPA searchlight - no changes needed!
+  rMVPA::run_searchlight(model_spec, radius = radius, method = method, ...)
+}
+
+#' Create a projecting dataset wrapper
+#'
+#' This creates an object that looks like an mvpa_dataset to rMVPA
+#' but actually performs projection on-the-fly when data is requested.
+#'
+#' @keywords internal
+wrap_as_projecting_dataset <- function(Y, projection_fun, original_dataset) {
+  structure(
+    list(
+      Y = Y,
+      projection_fun = projection_fun,
+      original = original_dataset,
+      get_data = function(indices = NULL) {
+        if (is.null(indices)) {
+          # Full brain projection
+          projection_fun(Y)
+        } else {
+          # Searchlight projection
+          projection_fun(Y[, indices, drop = FALSE])
+        }
+      }
+    ),
+    class = c("projecting_dataset", class(original_dataset))
+  )
+}
+
+#' Progressive projection feature selector for rMVPA
+#'
+#' Creates an rMVPA-compatible feature selector that uses fmriproj's
+#' progressive projection instead of traditional feature selection.
+#'
+#' @param method PP method ("LDA" or "PLS-DA")
+#' @param dims Number of dimensions
+#' @return Feature selector object compatible with rMVPA
+#' @export
+pp_feature_selector <- function(method = "LDA", dims = 2) {
+  structure(
+    list(
+      method = method,
+      dims = dims,
+      cutoff_type = "top_k",  # rMVPA compatibility
+      cutoff_value = dims,    # rMVPA compatibility
+      
+      # This is what rMVPA calls
+      select_features = function(X, Y, ...) {
+        # Instead of returning logical vector, return projection function
+        pp_model <- fit_pp(X, Y, method = method, dims = dims)
+        
+        # Return a function that projects new data
+        attr(X, "projection_function") <- function(X_new) {
+          predict_pp(pp_model, X_new)
+        }
+        
+        # Return all features as "selected" - projection happens elsewhere
+        rep(TRUE, ncol(X))
+      }
+    ),
+    class = "feature_selector"
+  )
+}
+</file>
+
+<file path="R/train_model_wrapper.R">
+#' Train an rMVPA model with optional progressive projection
+#'
+#' This method wraps `rMVPA::train_model` for objects of class `mvpa_model`.
+#' If the training data matrix has an attribute named `"projection_function"`,
+#' the function stored in that attribute is applied to the matrix before
+#' delegating to `rMVPA`.
+#'
+#' @param obj An `mvpa_model` object from the `rMVPA` package.
+#' @param X Training data matrix. If missing, the argument is passed through
+#'   to the underlying `rMVPA` method unchanged.
+#' @param ... Additional arguments passed to `rMVPA::train_model`.
+#' @return The fitted model as returned by `rMVPA::train_model`.
+#' @export
+train_model.mvpa_model <- function(obj, X, ...) {
+  if (!requireNamespace("rMVPA", quietly = TRUE)) {
+    stop("rMVPA package required. Install with: devtools::install_github('bbuchsbaum/rMVPA')")
+  }
+
+  if (!missing(X) && !is.null(attr(X, "projection_function"))) {
+    proj_fun <- attr(X, "projection_function")
+    X <- proj_fun(X)
+  }
+
+  orig <- getS3method("train_model", "mvpa_model", envir = asNamespace("rMVPA"))
+  orig(obj, X, ...)
+}
+</file>
+
+<file path="tests/testthat/test-cap-diagnostics.R">
+context("cap_diagnostics")
+
+test_that("cap_diagnostics discards large diagnostics", {
+  diag_list <- list(a = rnorm(100))
+  expect_warning(
+    res <- cap_diagnostics(diag_list, memory_limit = object.size(diag_list) - 10),
+    "Diagnostics exceed"
+  )
+  expect_null(res)
+})
+</file>
+
+<file path="tests/testthat/test-combine-projection-diagnostics.R">
+context("combine_projection_diagnostics")
+
+test_that("diagnostics retained per result", {
+  y1 <- list(A_sl = matrix(1), diag_data = list(lambda_sl = 0.1))
+  out <- combine_projection_diagnostics(NULL, y1)
+  y2 <- list(A_sl = matrix(2), diag_data = list(lambda_sl = 0.2))
+  out <- combine_projection_diagnostics(out, y2)
+  expect_equal(length(out$results), 2L)
+  expect_equal(length(out$diagnostics), 2L)
+  expect_equal(out$diagnostics[[1]]$lambda_sl, 0.1)
+  expect_equal(out$diagnostics[[2]]$lambda_sl, 0.2)
+})
+
+test_that("NULL diagnostics preserve length", {
+  old <- options(fmriproj.diagnostics_memory_limit = 0)
+  on.exit(options(old), add = TRUE)
+  y1 <- list(A_sl = matrix(1), diag_data = list(lambda_sl = 0.1))
+  res <- combine_projection_diagnostics(NULL, y1)
+  expect_equal(length(res$diagnostics), 1L)
+  expect_null(res$diagnostics[[1]])
+})
+</file>
+
+<file path="tests/testthat/test-explain.R">
+context("explain projection results")
+
+test_that("explain_projection_results returns maps", {
+  sl_res <- list(diagnostics = list(
+    list(lambda_sl = 0.5, w_sl = c(1,0)),
+    list(lambda_sl = 0.6, w_sl = c(0,1))
+  ))
+  basis <- matrix(c(1,0,
+                    0,1), nrow = 2, byrow = FALSE)
+  res <- explain_projection_results(sl_res, mask_dims = c(2), hrf_basis_matrix = basis)
+  expect_equal(length(res$lambda_map), 2)
+  expect_equal(length(res$w_maps[[1]]), 2)
+  expect_equal(length(res$effective_hrf), nrow(basis))
+})
+
+test_that("explain_projection_results errors for basis/w_mean mismatch", {
+  sl_res <- list(diagnostics = list(
+    list(lambda_sl = 0.5, w_sl = c(1,0)),
+    list(lambda_sl = 0.6, w_sl = c(0,1))
+  ))
+  bad_basis <- matrix(seq_len(9), nrow = 3)  # 3 columns, w_mean length is 2
+  expect_error(
+    explain_projection_results(sl_res, mask_dims = c(2), hrf_basis_matrix = bad_basis),
+    "Number of columns in hrf_basis_matrix"
+  )
+})
+</file>
+
+<file path="tests/testthat/test-fr_projector.R">
+context("fr_projector")
+
+test_that("fr_projector validates matrix inputs", {
+  Qt <- matrix(0, nrow = 2, ncol = 3)
+  R <- matrix(0, nrow = 2, ncol = 2)
+  expect_error(fr_projector(1, R), "Qt must be a matrix")
+  expect_error(fr_projector(Qt, 1), "R must be a matrix")
+})
+
+test_that("fr_projector checks dimension compatibility", {
+  Qt <- matrix(0, nrow = 2, ncol = 3)
+  R_bad <- matrix(0, nrow = 3, ncol = 3)
+  expect_error(fr_projector(Qt, R_bad), "nrow(Qt) must equal ncol(R)")
+})
+
+test_that("fr_projector validates K_global dimensions", {
+  Qt <- matrix(0, nrow = 2, ncol = 3)
+  R <- matrix(0, nrow = 2, ncol = 2)
+  Kg_bad <- matrix(0, nrow = 2, ncol = 2)
+  expect_error(fr_projector(Qt, R, Kg_bad), "K_global must have same dimensions as Qt")
+  Kg_good <- matrix(0, nrow = 2, ncol = 3)
+  proj <- fr_projector(Qt, R, Kg_good)
+  expect_s3_class(proj, "fr_projector")
+})
+
+test_that("fr_projector accepts optional RtR and tRQt", {
+  Qt <- matrix(0, nrow = 2, ncol = 3)
+  R <- matrix(0, nrow = 2, ncol = 2)
+  RtR <- crossprod(R)
+  tRQt <- t(R) %*% Qt
+  proj <- fr_projector(Qt, R, RtR = RtR, tRQt = tRQt)
+  expect_equal(proj$RtR, RtR)
+  expect_equal(proj$tRQt, tRQt)
+})
+</file>
+
+<file path="tests/testthat/test-ls-svd-hrf-recovery.R">
+context("ls+svd HRF recovery")
+
+test_that("LS+SVD recovers SPMG1 HRF using BSPLINE basis", {
+  if (!requireNamespace("fmrireg", quietly = TRUE)) {
+    skip("fmrireg not installed")
+  }
+
+  set.seed(123)
+  sim <- fmrireg::simulate_bold_signal(ncond = 1,
+                                       hrf = fmrireg::HRF_SPMG1,
+                                       nreps = 40,
+                                       isi = c(1, 3),
+                                       TR = 1)
+
+  time <- sim$mat[, 1]
+  bold <- sim$mat[, 2]
+
+  em <- list(onsets = as.integer(round(sim$onset)),
+             n_time = length(time),
+             basis_length = 30L)
+
+  X_obj <- build_design_matrix(em,
+                               hrf_basis_func = fmrireg::HRF_BSPLINE,
+                               theta_params = list(df = 10),
+                               sparse = FALSE)
+  X <- X_obj$X
+
+  proj <- build_projector(X, lambda_global = 0)
+  beta_hat <- drop(proj$K_global %*% bold)
+  nbasis <- ncol(X) / length(em$onsets)
+  beta_mat <- matrix(beta_hat, ncol = nbasis, byrow = TRUE)
+
+  sv <- svd(beta_mat)
+  hrf_est <- sv$u[, 1]
+  if (sum(hrf_est) < 0) hrf_est <- -hrf_est
+
+  true_hrf <- fmrireg::HRF_SPMG1(seq_along(hrf_est) - 1)
+  expect_gt(cor(hrf_est, true_hrf), 0.9)
+})
+</file>
+
+<file path="tests/testthat/test-pp.R">
+context("progressive projection pursuit")
+
+test_that("fit_pp and predict_pp work for LDA", {
+  set.seed(1)
+  A <- rbind(matrix(rnorm(10, mean = -1), ncol = 2),
+             matrix(rnorm(10, mean = 1), ncol = 2))
+  labels <- rep(c("a", "b"), each = 5)
+  model <- fit_pp(A, labels, method = "LDA", dims = 1)
+  proj <- predict_pp(model, A)
+  expect_equal(ncol(proj), 1)
+  expect_equal(nrow(proj), nrow(A))
+})
+
+test_that("fit_pp and predict_pp work for PLS-DA", {
+  set.seed(2)
+  A <- matrix(rnorm(20), ncol = 2)
+  labels <- rep(c("a", "b"), each = 5)
+  model <- fit_pp(A, labels, method = "PLS-DA", dims = 1)
+  proj <- predict_pp(model, A)
+  expect_equal(ncol(proj), 1)
+  expect_equal(nrow(proj), nrow(A))
+})
+
+test_that("fit_pp handles single class by returning identity", {
+  A <- matrix(rnorm(10), ncol = 2)
+  labels <- rep("a", nrow(A))
+  model <- fit_pp(A, labels, method = "LDA", dims = 2)
+  expect_equal(model$W, diag(ncol(A)))
 })
 </file>
 
@@ -1407,1141 +1140,172 @@ test_that("adaptive regularization responds appropriately to local SNR", {
 })
 </file>
 
-<file path="tests/testthat.R">
-# This file is part of the standard setup for testthat.
-# It is recommended that you do not modify it.
-#
-# Where should you do additional test configuration?
-# Learn more about the roles of various files in:
-# * https://r-pkgs.org/testing-design.html#testing-design-tests-files
+<file path="tests/testthat/test-run-api.R">
+context("run API")
 
-library(testthat)
-library(fmriproj)
+em <- list(onsets = 1L, n_time = 2L, conditions = 1L)
+Y <- matrix(1, nrow = 2, ncol = 1)
 
-test_check("fmriproj")
+mask <- matrix(1)
+
+# These functions require rMVPA, so check that they error when missing
+
+test_that("run_searchlight errors without rMVPA", {
+  expect_error(run_searchlight(Y, em, mask), "rMVPA package required")
+})
+
+test_that("run_regional errors without rMVPA", {
+  expect_error(run_regional(Y, em, mask), "rMVPA package required")
+})
 </file>
 
-<file path="R/fmriproj-package.R">
-#' @keywords internal
-"_PACKAGE"
-
-#' @import fmrireg
-#' @import rMVPA
-#' @import Matrix
-#' @importFrom dplyr %>%
-#' @importFrom tibble tibble
-#' @importFrom assertthat assert_that
-#' @importFrom purrr map
-#' @importFrom glmnet glmnet
-#' @importFrom RSpectra svds
-#' @importFrom foreach foreach %dopar%
-#' @importFrom doParallel registerDoParallel
-#' @useDynLib fmriproj, .registration = TRUE
-#' @importFrom Rcpp evalCpp
-NULL
-</file>
-
-<file path="R/RcppExports.R">
-# Generated by using Rcpp::compileAttributes() -> do not edit by hand
-# Generator token: 10BE3573-1514-4C36-9D1C-5A225CD40393
-
-triplet_to_spmat_cpp <- function(i, j, x, nrow, ncol) {
-    .Call(`_fmriproj_triplet_to_spmat_cpp`, i, j, x, nrow, ncol)
-}
-
-spmat_dense_prod_cpp <- function(A, B) {
-    .Call(`_fmriproj_spmat_dense_prod_cpp`, A, B)
-}
-</file>
-
-<file path="R/rmvpa_compatibility.R">
-#' Create rMVPA-compatible searchlight function
+<file path="R/api_run_analysis.R">
+#' Run MVPA searchlight on time-series data
 #'
-#' Wraps fmriproj's projection pipeline to produce output that matches
-#' what rMVPA expects from a feature extraction function.
+#' High-level wrapper that automatically builds the necessary
+#' `rMVPA` objects and connects them to the fmriproj projection pipeline.
+#' See the vignette "Running rMVPA Analyses on Time-Series Data" for a
+#' complete walkthrough.
 #'
-#' @param event_model Event model from fmrireg
-#' @param projector_components Pre-computed projector from build_projector
-#' @param N_trials Number of trials
-#' @param K_hrf Number of HRF basis functions
-#' @param lambda_adaptive_method Adaptive lambda method
-#' @param lambda_global Global lambda value
-#' @param collapse_method Beta collapse method
-#' @param X_theta_dense Dense design matrix for EB method
-#' @param return_format Format of return value: "matrix" (just features), 
-#'   "mvpa_data" (rMVPA data structure), or "list" (with diagnostics)
-#' @return A function suitable for rMVPA::run_searchlight
+#' @param Y Time-series matrix (time x voxels)
+#' @param event_model Event model list describing trial onsets and labels
+#' @param mask Brain mask for searchlight centers
+#' @param radius Searchlight radius in voxels
+#' @param classifier Name of classifier model to load with `rMVPA::load_model`
+#' @param projection_opts List of options passed to the projection step
+#' @param cross_validation Optional rMVPA cross-validation object
+#' @param ... Additional arguments passed to `rMVPA::run_searchlight`
+#'
+#' @return An object of class `searchlight_result`
 #' @export
-make_rmvpa_searchlight_fun <- function(event_model,
-                                       projector_components,
-                                       N_trials,
-                                       K_hrf,
-                                       lambda_adaptive_method = "none",
-                                       lambda_global = 0,
-                                       collapse_method = "rss",
-                                       X_theta_dense = NULL,
-                                       return_format = c("matrix", "mvpa_data", "list")) {
-  
-  return_format <- match.arg(return_format)
-  
-  function(Y_sl, coords = NULL, indices = NULL, ...) {
-    # Core projection pipeline
-    proj_res <- adaptive_ridge_projector(
-      Y_sl,
-      projector_components,
-      lambda_adaptive_method = lambda_adaptive_method,
-      lambda_floor_global = lambda_global,
-      X_theta_for_EB_residuals = X_theta_dense
-    )
-    
-    coll_res <- collapse_beta(
-      proj_res$Z_sl_raw,
-      N_trials,
-      K_hrf,
-      method = collapse_method
-    )
-    
-    # Return in requested format
-    switch(return_format,
-      matrix = coll_res$A_sl,  # Simple matrix for basic rMVPA
-      
-      mvpa_data = {
-        # Return structure that mimics mvpa_dataset output
-        list(
-          data = coll_res$A_sl,
-          nobs = N_trials,
-          mask = indices,
-          coords = coords
-        )
-      },
-      
-      list = {
-        # Full output with diagnostics
-        list(
-          data = coll_res$A_sl,
-          lambda_sl = proj_res$diag_data$lambda_sl_chosen,
-          w_sl = coll_res$w_sl,
-          coords = coords,
-          indices = indices
-        )
-      }
-    )
+run_searchlight <- function(Y,
+                            event_model,
+                            mask,
+                            radius = 3,
+                            classifier = "sda_notune",
+                            projection_opts = list(),
+                            cross_validation = NULL,
+                            ...) {
+  if (!requireNamespace("rMVPA", quietly = TRUE)) {
+    stop("rMVPA package required. Install with: devtools::install_github('bbuchsbaum/rMVPA')")
   }
-}
 
-#' Create rMVPA-compatible dataset from time-series
-#'
-#' Converts time-series data to trial patterns using fmriproj, returning
-#' an object that can be used directly with rMVPA functions.
-#'
-#' @param Y Time-series data (T x voxels)
-#' @param event_model Event model from fmrireg
-#' @param mask Brain mask (same dimensions as Y spatial dims)
-#' @param ... Additional parameters passed to projection pipeline
-#' @return An rMVPA-compatible dataset object
-#' @export
-as_mvpa_dataset <- function(Y, event_model, mask = NULL, ...) {
-  # Build projection components
-  design <- build_design_matrix(event_model, ...)
-  proj_comp <- build_projector(design$X, ...)
-  
-  # Project full brain data
-  N_trials <- length(event_model$onsets)
-  K_hrf <- ncol(design$hrf_info$basis)
-  
-  # Apply projection
-  proj_res <- adaptive_ridge_projector(Y, proj_comp, ...)
-  coll_res <- collapse_beta(proj_res$Z_sl_raw, N_trials, K_hrf, ...)
-  
-  # Create rMVPA-compatible structure
-  structure(
-    list(
-      data = coll_res$A_sl,
-      mask = mask,
-      nobs = N_trials,
-      event_model = event_model,
-      projection_info = list(
-        design = design,
-        projector = proj_comp,
-        collapse_weights = coll_res$w_sl
-      )
-    ),
-    class = c("fmriproj_mvpa_dataset", "mvpa_dataset")
+  proj_defaults <- list(
+    lambda_adaptive_method = "EB",
+    collapse_method = "rss",
+    lambda_global = 0.1
   )
-}
-</file>
+  proj_opts <- modifyList(proj_defaults, projection_opts)
 
-<file path="R/rmvpa_wrappers.R">
-#' Projected searchlight analysis with rMVPA
-#'
-#' A wrapper that makes fmriproj projection work seamlessly with rMVPA's
-#' run_searchlight function. Designed to minimize changes to rMVPA code.
-#'
-#' @param model_spec An rMVPA model specification
-#' @param radius Searchlight radius
-#' @param method Searchlight method ("standard" or "randomized")
-#' @param projection_opts List of projection options (lambda_method, collapse_method, etc.)
-#' @param ... Additional arguments passed to rMVPA::run_searchlight
-#' @return rMVPA searchlight result object
-#' @export
-run_searchlight_projected <- function(model_spec, 
-                                     radius = 3,
-                                     method = "standard",
-                                     projection_opts = list(),
-                                     ...) {
-  
-  # Extract time-series data from model_spec
-  Y <- get_timeseries_from_model_spec(model_spec)
-  event_model <- get_event_model_from_design(model_spec$design)
-  
-  # Set default projection options
-  proj_opts <- modifyList(
-    list(
-      lambda_adaptive_method = "EB",
-      collapse_method = "rss",
-      lambda_global = 0.1
-    ),
-    projection_opts
-  )
-  
-  # Build projection components once
-  design <- build_design_matrix(event_model)
-  proj_comp <- build_projector(design$X, lambda_global = proj_opts$lambda_global)
-  
-  # Create searchlight function that returns what rMVPA expects
-  sl_fun <- make_rmvpa_searchlight_fun(
+  design_proj <- build_design_matrix(event_model)
+  proj_comp <- build_projector(design_proj$X, lambda_global = proj_opts$lambda_global)
+
+  spec <- projection_spec(
     event_model = event_model,
     projector_components = proj_comp,
     N_trials = length(event_model$onsets),
-    K_hrf = ncol(design$hrf_info$basis),
+    K_hrf = ncol(design_proj$hrf_info$basis),
     lambda_adaptive_method = proj_opts$lambda_adaptive_method,
-    collapse_method = proj_opts$collapse_method,
-    return_format = "matrix"  # rMVPA expects simple matrix
+    lambda_global = proj_opts$lambda_global,
+    collapse_method = proj_opts$collapse_method
   )
-  
-  # Replace the data in model_spec with our projection function
-  # This is the key: we intercept at the data extraction level
-  model_spec$dataset <- wrap_as_projecting_dataset(
-    Y, sl_fun, model_spec$dataset
+
+  sl_fun <- make_rmvpa_searchlight_fun(spec, return_format = "matrix")
+
+  dataset <- rMVPA::mvpa_dataset(Y, mask)
+  dataset <- wrap_as_projecting_dataset(Y, sl_fun, dataset)
+
+  design <- rMVPA::mvpa_design(
+    y_train = event_model$conditions,
+    block_var = event_model$blocks
   )
-  
-  # Now run standard rMVPA searchlight - no changes needed!
-  rMVPA::run_searchlight(model_spec, radius = radius, method = method, ...)
-}
 
-#' Create a projecting dataset wrapper
-#'
-#' This creates an object that looks like an mvpa_dataset to rMVPA
-#' but actually performs projection on-the-fly when data is requested.
-#'
-#' @keywords internal
-wrap_as_projecting_dataset <- function(Y, projection_fun, original_dataset) {
-  structure(
-    list(
-      Y = Y,
-      projection_fun = projection_fun,
-      original = original_dataset,
-      get_data = function(indices = NULL) {
-        if (is.null(indices)) {
-          # Full brain projection
-          projection_fun(Y)
-        } else {
-          # Searchlight projection
-          projection_fun(Y[, indices, drop = FALSE])
-        }
-      }
-    ),
-    class = c("projecting_dataset", class(original_dataset))
-  )
-}
-
-#' Progressive projection feature selector for rMVPA
-#'
-#' Creates an rMVPA-compatible feature selector that uses fmriproj's
-#' progressive projection instead of traditional feature selection.
-#'
-#' @param method PP method ("LDA" or "PLS-DA")
-#' @param dims Number of dimensions
-#' @return Feature selector object compatible with rMVPA
-#' @export
-pp_feature_selector <- function(method = "LDA", dims = 2) {
-  structure(
-    list(
-      method = method,
-      dims = dims,
-      cutoff_type = "top_k",  # rMVPA compatibility
-      cutoff_value = dims,    # rMVPA compatibility
-      
-      # This is what rMVPA calls
-      select_features = function(X, Y, ...) {
-        # Instead of returning logical vector, return projection function
-        pp_model <- fit_pp(X, Y, method = method, dims = dims)
-        
-        # Return a function that projects new data
-        attr(X, "projection_function") <- function(X_new) {
-          predict_pp(pp_model, X_new)
-        }
-        
-        # Return all features as "selected" - projection happens elsewhere
-        rep(TRUE, ncol(X))
-      }
-    ),
-    class = "feature_selector"
-  )
-}
-</file>
-
-<file path="tests/testthat/test-cached-optim.R">
-test_that("make_cached_fn_gr caches results", {
-  counter <- 0
-  fn_gr <- function(w) {
-    counter <<- counter + 1
-    list(value = sum(w), grad = rep(1, length(w)))
-  }
-  cache <- fmriproj:::make_cached_fn_gr(fn_gr)
-  w1 <- c(1, 2)
-  v1 <- cache$fn(w1)
-  g1 <- cache$gr(w1)
-  expect_equal(counter, 1)
-  expect_equal(v1, sum(w1))
-  expect_equal(g1, rep(1, length(w1)))
-  g1b <- cache$gr(w1)
-  expect_equal(counter, 1)
-  w2 <- c(2, 3)
-  v2 <- cache$fn(w2)
-  expect_equal(counter, 2)
-  g2 <- cache$gr(w2)
-  expect_equal(counter, 2)
-  expect_equal(v2, sum(w2))
-  expect_equal(g2, rep(1, length(w2)))
-})
-</file>
-
-<file path="tests/testthat/test-cap-diagnostics.R">
-context("cap_diagnostics")
-
-test_that("cap_diagnostics discards large diagnostics", {
-  diag_list <- list(a = rnorm(100))
-  expect_warning(
-    res <- cap_diagnostics(diag_list, memory_limit = object.size(diag_list) - 10),
-    "Diagnostics exceed"
-  )
-  expect_null(res)
-})
-</file>
-
-<file path="tests/testthat/test-class-checkers.R">
-context("class checking helpers")
-
-test_that("is.fr_design_matrix identifies objects", {
-  dm <- fr_design_matrix(matrix(1, nrow = 1, ncol = 1))
-  expect_true(is.fr_design_matrix(dm))
-  expect_false(is.fr_design_matrix(list()))
-})
-
-test_that("is.fr_projector identifies objects", {
-  proj <- fr_projector(matrix(1, 1, 1), matrix(1, 1, 1))
-  expect_true(is.fr_projector(proj))
-  expect_false(is.fr_projector(list()))
-})
-</file>
-
-<file path="tests/testthat/test-combine-projection-diagnostics.R">
-context("combine_projection_diagnostics")
-
-test_that("diagnostics retained per result", {
-  y1 <- list(A_sl = matrix(1), diag_data = list(lambda_sl = 0.1))
-  out <- combine_projection_diagnostics(NULL, y1)
-  y2 <- list(A_sl = matrix(2), diag_data = list(lambda_sl = 0.2))
-  out <- combine_projection_diagnostics(out, y2)
-  expect_equal(length(out$results), 2L)
-  expect_equal(length(out$diagnostics), 2L)
-  expect_equal(out$diagnostics[[1]]$lambda_sl, 0.1)
-  expect_equal(out$diagnostics[[2]]$lambda_sl, 0.2)
-})
-
-test_that("NULL diagnostics preserve length", {
-  old <- options(fmriproj.diagnostics_memory_limit = 0)
-  on.exit(options(old), add = TRUE)
-  y1 <- list(A_sl = matrix(1), diag_data = list(lambda_sl = 0.1))
-  res <- combine_projection_diagnostics(NULL, y1)
-  expect_equal(length(res$diagnostics), 1L)
-  expect_null(res$diagnostics[[1]])
-})
-</file>
-
-<file path="tests/testthat/test-explain.R">
-context("explain projection results")
-
-test_that("explain_projection_results returns maps", {
-  sl_res <- list(diagnostics = list(
-    list(lambda_sl = 0.5, w_sl = c(1,0)),
-    list(lambda_sl = 0.6, w_sl = c(0,1))
-  ))
-  basis <- matrix(c(1,0,
-                    0,1), nrow = 2, byrow = FALSE)
-  res <- explain_projection_results(sl_res, mask_dims = c(2), hrf_basis_matrix = basis)
-  expect_equal(length(res$lambda_map), 2)
-  expect_equal(length(res$w_maps[[1]]), 2)
-  expect_equal(length(res$effective_hrf), nrow(basis))
-})
-
-test_that("explain_projection_results errors for basis/w_mean mismatch", {
-  sl_res <- list(diagnostics = list(
-    list(lambda_sl = 0.5, w_sl = c(1,0)),
-    list(lambda_sl = 0.6, w_sl = c(0,1))
-  ))
-  bad_basis <- matrix(seq_len(9), nrow = 3)  # 3 columns, w_mean length is 2
-  expect_error(
-    explain_projection_results(sl_res, mask_dims = c(2), hrf_basis_matrix = bad_basis),
-    "Number of columns in hrf_basis_matrix"
-  )
-})
-</file>
-
-<file path="tests/testthat/test-fr_projector.R">
-context("fr_projector")
-
-test_that("fr_projector validates matrix inputs", {
-  Qt <- matrix(0, nrow = 2, ncol = 3)
-  R <- matrix(0, nrow = 2, ncol = 2)
-  expect_error(fr_projector(1, R), "Qt must be a matrix")
-  expect_error(fr_projector(Qt, 1), "R must be a matrix")
-})
-
-test_that("fr_projector checks dimension compatibility", {
-  Qt <- matrix(0, nrow = 2, ncol = 3)
-  R_bad <- matrix(0, nrow = 3, ncol = 3)
-  expect_error(fr_projector(Qt, R_bad), "nrow(Qt) must equal ncol(R)")
-})
-
-test_that("fr_projector validates K_global dimensions", {
-  Qt <- matrix(0, nrow = 2, ncol = 3)
-  R <- matrix(0, nrow = 2, ncol = 2)
-  Kg_bad <- matrix(0, nrow = 2, ncol = 2)
-  expect_error(fr_projector(Qt, R, Kg_bad), "K_global must have same dimensions as Qt")
-  Kg_good <- matrix(0, nrow = 2, ncol = 3)
-  proj <- fr_projector(Qt, R, Kg_good)
-  expect_s3_class(proj, "fr_projector")
-})
-
-test_that("fr_projector accepts optional RtR and tRQt", {
-  Qt <- matrix(0, nrow = 2, ncol = 3)
-  R <- matrix(0, nrow = 2, ncol = 2)
-  RtR <- crossprod(R)
-  tRQt <- t(R) %*% Qt
-  proj <- fr_projector(Qt, R, RtR = RtR, tRQt = tRQt)
-  expect_equal(proj$RtR, RtR)
-  expect_equal(proj$tRQt, tRQt)
-})
-</file>
-
-<file path="tests/testthat/test-hrf-basis-spmg3-theta.R">
-context("hrf_basis_spmg3_theta")
-
-test_that("returned matrix has expected dimensions", {
-  t <- seq(0, 10, by = 0.5)
-  B <- hrf_basis_spmg3_theta(t = t)
-  expect_equal(dim(B), c(length(t), 3))
-})
-
-test_that("normalization to max=1 works", {
-  t <- seq(0, 30, by = 0.1)
-  B <- hrf_basis_spmg3_theta(t = t)
-  expect_equal(max(B[, 1]), 1)
-})
-
-test_that("derivatives behave as expected for simple t", {
-  t <- 0:4
-  B <- hrf_basis_spmg3_theta(t = t)
-
-  p1 <- 6
-  p2 <- 16
-  d1 <- 1
-  d2 <- 1
-  hrf <- stats::dgamma(t, shape = p1, rate = d1) -
-    0.35 * stats::dgamma(t, shape = p2, rate = d2)
-  if (max(hrf) != 0) hrf <- hrf / max(hrf)
-  dt <- mean(diff(t))
-  deriv1 <- c(diff(hrf) / dt, 0)
-  deriv2 <- c(diff(deriv1) / dt, 0)
-  expected <- cbind(hrf, deriv1, deriv2)
-
-  expect_equal(B, expected)
-})
-</file>
-
-<file path="tests/testthat/test-ls-svd-hrf-recovery.R">
-context("ls+svd HRF recovery")
-
-test_that("LS+SVD recovers SPMG1 HRF using BSPLINE basis", {
-  if (!requireNamespace("fmrireg", quietly = TRUE)) {
-    skip("fmrireg not installed")
-  }
-
-  set.seed(123)
-  sim <- fmrireg::simulate_bold_signal(ncond = 1,
-                                       hrf = fmrireg::HRF_SPMG1,
-                                       nreps = 40,
-                                       isi = c(1, 3),
-                                       TR = 1)
-
-  time <- sim$mat[, 1]
-  bold <- sim$mat[, 2]
-
-  em <- list(onsets = as.integer(round(sim$onset)),
-             n_time = length(time),
-             basis_length = 30L)
-
-  X_obj <- build_design_matrix(em,
-                               hrf_basis_func = fmrireg::HRF_BSPLINE,
-                               theta_params = list(df = 10),
-                               sparse = FALSE)
-  X <- X_obj$X
-
-  proj <- build_projector(X, lambda_global = 0)
-  beta_hat <- drop(proj$K_global %*% bold)
-  nbasis <- ncol(X) / length(em$onsets)
-  beta_mat <- matrix(beta_hat, ncol = nbasis, byrow = TRUE)
-
-  sv <- svd(beta_mat)
-  hrf_est <- sv$u[, 1]
-  if (sum(hrf_est) < 0) hrf_est <- -hrf_est
-
-  true_hrf <- fmrireg::HRF_SPMG1(seq_along(hrf_est) - 1)
-  expect_gt(cor(hrf_est, true_hrf), 0.9)
-})
-</file>
-
-<file path="tests/testthat/test-make-trialwise-X.R">
-test_that("build_design_matrix constructs sparse matrix with basis matrix", {
-  em <- list(onsets = c(0L, 2L), n_time = 6L)
-  basis <- matrix(c(1, 0, 0,
-                    0, 1, 0), nrow = 3, byrow = FALSE)
-  res <- build_design_matrix(em, hrf_basis_matrix = basis)
-  X <- res$X
-  expect_s4_class(X, "dgCMatrix")
-  expect_equal(dim(X), c(6L, 6L))
-  dense <- as.matrix(X)
-  expect_equal(dense[1,1], 1)
-  expect_equal(dense[3,4], 1)
-})
-
-test_that("build_design_matrix uses hrf_basis_func and theta_params", {
-  em <- list(onsets = c(1L), n_time = 5L, basis_length = 3L)
-  hfun <- function(theta, t) {
-    matrix(theta[1] + t, nrow = 3, ncol = 1)
-  }
-  res <- build_design_matrix(em, hrf_basis_func = hfun, theta_params = c(2))
-  X <- res$X
-  dense <- as.matrix(X)
-  expect_equal(dense[2,1], 2)
-  expect_equal(dense[3,1], 3)
-})
-
-test_that("parametric modulation scales columns", {
-  em <- list(onsets = c(0L,2L), n_time = 6L,
-             modulator = c(1,2))
-  basis <- matrix(c(1,0), nrow = 2)
-  res <- build_design_matrix(em, hrf_basis_matrix = basis)
-  X <- as.matrix(res$X)
-  expect_equal(X[1,1], 1)
-  expect_equal(X[3,2], 2)
-})
-
-test_that("long HRF basis is decimated", {
-  em <- list(onsets = c(0L), n_time = 4L, basis_length = 10L)
-  basis_fun <- function(theta, t) matrix(1, nrow = length(t), ncol = 1)
-  res <- build_design_matrix(em, hrf_basis_func = basis_fun)
-  expect_equal(nrow(res$hrf_info$basis), 4L)
-})
-
-test_that("input lengths are validated", {
-  basis <- matrix(1, nrow = 2, ncol = 1)
-
-  em_amp <- list(onsets = c(0L, 2L), n_time = 6L,
-                 amplitudes = c(1))
-  expect_error(build_design_matrix(em_amp, hrf_basis_matrix = basis),
-               "amplitudes")
-
-  em_mod <- list(onsets = c(0L, 2L), n_time = 6L,
-                 modulator = c(1))
-  expect_error(build_design_matrix(em_mod, hrf_basis_matrix = basis),
-               "modulator")
-})
-</file>
-
-<file path="tests/testthat/test-mvpa-projected-searchlight.R">
-context("run_projected_searchlight")
-
-test_that("run_projected_searchlight returns FUN and components when rMVPA missing", {
-  em <- list(onsets = c(0L,2L), n_time = 6L)
-  basis <- matrix(c(1,0,0,
-                    0,1,0), nrow = 3, byrow = FALSE)
-  Y <- matrix(1, nrow = 6, ncol = 2)
-  res <- run_projected_searchlight(Y, em, hrf_basis_matrix = basis,
-                                    lambda_global = 0.5, diagnostics = TRUE)
-  expect_true(is.function(res$FUN))
-  expect_s3_class(res$projector, "fr_projector")
-  sl_res <- res$FUN(Y)
-  expect_equal(dim(sl_res$A_sl), c(length(em$onsets), ncol(Y)))
-  expect_true(!is.null(sl_res$diag_data))
-})
-
-test_that("run_projected_searchlight computes dense matrix for EB", {
-  em <- list(onsets = c(0L,2L), n_time = 6L)
-  basis <- matrix(c(1,0,0,
-                    0,1,0), nrow = 3, byrow = FALSE)
-  Y <- matrix(rnorm(12), nrow = 6, ncol = 2)
-  res <- run_projected_searchlight(Y, em, hrf_basis_matrix = basis,
-                                    lambda_global = 0.5,
-                                    lambda_adaptive_method = "EB")
-  sl_res <- res$FUN(Y)
-  expect_equal(dim(sl_res$A_sl), c(length(em$onsets), ncol(Y)))
-})
-</file>
-
-<file path="tests/testthat/test-pp.R">
-context("progressive projection pursuit")
-
-test_that("fit_pp and predict_pp work for LDA", {
-  set.seed(1)
-  A <- rbind(matrix(rnorm(10, mean = -1), ncol = 2),
-             matrix(rnorm(10, mean = 1), ncol = 2))
-  labels <- rep(c("a", "b"), each = 5)
-  model <- fit_pp(A, labels, method = "LDA", dims = 1)
-  proj <- predict_pp(model, A)
-  expect_equal(ncol(proj), 1)
-  expect_equal(nrow(proj), nrow(A))
-})
-
-test_that("fit_pp and predict_pp work for PLS-DA", {
-  set.seed(2)
-  A <- matrix(rnorm(20), ncol = 2)
-  labels <- rep(c("a", "b"), each = 5)
-  model <- fit_pp(A, labels, method = "PLS-DA", dims = 1)
-  proj <- predict_pp(model, A)
-  expect_equal(ncol(proj), 1)
-  expect_equal(nrow(proj), nrow(A))
-})
-
-test_that("fit_pp handles single class by returning identity", {
-  A <- matrix(rnorm(10), ncol = 2)
-  labels <- rep("a", nrow(A))
-  model <- fit_pp(A, labels, method = "LDA", dims = 2)
-  expect_equal(model$W, diag(ncol(A)))
-})
-</file>
-
-<file path="tests/testthat/test-rcpp-helpers.R">
-test_that("make_spmat_triplet creates expected sparse matrix", {
-  i <- c(0L, 1L)
-  j <- c(0L, 1L)
-  x <- c(1, 2)
-  sm <- make_spmat_triplet(i, j, x, 2L, 2L)
-  expect_s4_class(sm, "dgCMatrix")
-  expect_equal(as.matrix(sm), matrix(c(1, 0, 0, 2), 2, 2))
-})
-
-test_that("spmat_dense_prod multiplies correctly", {
-  i <- c(0L, 1L)
-  j <- c(0L, 1L)
-  x <- c(1, 2)
-  sm <- make_spmat_triplet(i, j, x, 2L, 2L)
-  dense <- matrix(1, 2, 2)
-  res <- spmat_dense_prod(sm, dense)
-  expect_equal(res, as.matrix(sm %*% dense))
-})
-
-test_that("make_spmat_triplet validates inputs", {
-  expect_error(make_spmat_triplet(0L, c(0L, 1L), 1, 2L, 2L))
-  expect_error(make_spmat_triplet(c(0L, NA), c(0L, 1L), c(1, 2), 2L, 2L),
-               "must not contain NA")
-  expect_error(make_spmat_triplet(c(-1L, 0L), c(0L, 1L), c(1, 2), 2L, 2L),
-               "non-negative")
-  expect_error(make_spmat_triplet(c(0L, 1L), c(0L, 2L), c(1, 2), 2L, 2L),
-               "out of range")
-})
-
-test_that("spmat_dense_prod validates inputs", {
-  sm <- make_spmat_triplet(0L, 0L, 1, 2L, 2L)
-  expect_error(spmat_dense_prod(as.matrix(sm), matrix(1, 2, 2)), "dgCMatrix")
-  expect_error(spmat_dense_prod(sm, 1), "matrix")
-  expect_error(spmat_dense_prod(sm, matrix(1, 3, 2)), "Non-conformable")
-})
-</file>
-
-<file path="R/combine_projection_diagnostics.R">
-#' Combine projection diagnostics from searchlight runs
-#'
-#' Simple helper intended for use as the `.combine` function in
-#' `rMVPA::searchlight`. It collects the searchlight-specific diagnostic
-#' information (currently `lambda_sl` and `w_sl`) from each call.
-#'
-#' @param x Accumulated results.
-#' @param y New searchlight result to combine.
-#'
-#' @return A list with `results` (all searchlight outputs) and `diagnostics`,
-#'   a list of per-searchlight diagnostic entries.
-#' @export
-combine_projection_diagnostics <- function(x, y) {
-  diag_val <- cap_diagnostics(list(y$diag_data))
-  if (is.null(x)) {
-    return(list(results = list(y),
-                diagnostics = list(diag_val)))
-  }
-
-  x$results[[length(x$results) + 1]] <- y
-  new_diag <- cap_diagnostics(list(y$diag_data))
-  if (!is.null(new_diag)) {
-    x$diagnostics[[length(x$diagnostics) + 1]] <- diag_val
-  }
-
-  x
-}
-</file>
-
-<file path="R/explain_projection_results.R">
-#' Create NIfTI map of searchlight diagnostics
-#'
-#' This function extracts the chosen searchlight ridge penalties (`lambda_sl`)
-#' and optionally the collapse weights (`w_sl`) from the output of
-#' `combine_projection_diagnostics` and returns simple NIfTI-like arrays for
-#' visualisation. If the HRF basis matrix used during projection is provided,
-#' an "effective HRF" (basis %*% mean(`w_sl`)) is also returned.
-#'
-#' @param sl_results Result object from `combine_projection_diagnostics` that
-#'   contains a `diagnostics` list.
-#' @param mask_dims Numeric vector giving the dimensions of the brain mask.
-#' @param hrf_basis_matrix Optional HRF basis matrix used for computing an
-#'   effective HRF from the average `w_sl`.
-#'
-#' @return A list with `lambda_map`, `w_maps` (or `NULL` if unavailable) and an
-#'   optional `effective_hrf` vector. In a full implementation these would be
-#'   `neuroim2` objects.
-#' @export
-explain_projection_results <- function(sl_results, mask_dims, hrf_basis_matrix = NULL) {
-  if (is.null(sl_results$diagnostics)) {
-    stop("No diagnostics found in searchlight results")
-  }
-  lambda_vec <- vapply(sl_results$diagnostics,
-                       function(d) d$lambda_sl,
-                       numeric(1))
-  lambda_map <- array(lambda_vec, dim = mask_dims)
-
-  w_list <- lapply(sl_results$diagnostics, function(d) d$w_sl)
-  w_maps <- NULL
-  effective_hrf <- NULL
-  if (!any(vapply(w_list, is.null, logical(1)))) {
-    K <- length(w_list[[1]])
-    w_mat <- vapply(w_list, identity, numeric(K))
-    w_maps <- vector("list", K)
-    for (k in seq_len(K)) {
-      w_maps[[k]] <- array(w_mat[k, ], dim = mask_dims)
-    }
-    if (!is.null(hrf_basis_matrix)) {
-      w_mean <- rowMeans(w_mat)
-      stopifnot(ncol(hrf_basis_matrix) == length(w_mean))
-      effective_hrf <- as.numeric(hrf_basis_matrix %*% w_mean)
-    }
-  }
-
-  list(lambda_map = lambda_map, w_maps = w_maps, effective_hrf = effective_hrf)
-}
-</file>
-
-<file path="R/hrf_basis_spmg3_theta.R">
-#' Parameterized SPMG3 HRF basis
-#'
-#' Generates a simple SPMG3-style HRF basis with optional scaling of
-#' the canonical delay and dispersion parameters via `theta`.
-#'
-#' @param theta Numeric vector of length 1 or 2 controlling delay and
-#'   dispersion scaling. If of length 1, the same value is used for both
-#'   delay and dispersion. Defaults to `c(1, 1)`.
-#' @param t Numeric vector of time points at which to evaluate the basis.
-#'
-#' @return Matrix with length(t) rows and 3 columns: canonical HRF,
-#'   temporal derivative, and dispersion derivative.
-#'
-#' Derivatives are estimated using a central difference scheme that
-#' accommodates irregularly spaced `t`. Forward and backward
-#' differences are applied at the boundaries.
-#' @export
-hrf_basis_spmg3_theta <- function(theta = c(1, 1), t) {
-  delay_scale <- theta[1]
-  disp_scale <- if (length(theta) >= 2) theta[2] else theta[1]
-
-  p1 <- 6 * delay_scale
-  p2 <- 16 * delay_scale
-  d1 <- 1 * disp_scale
-  d2 <- 1 * disp_scale
-
-  hrf <- stats::dgamma(t, shape = p1, rate = d1) -
-    0.35 * stats::dgamma(t, shape = p2, rate = d2)
-  if (max(hrf) != 0) hrf <- hrf / max(hrf)
-
-  n <- length(hrf)
-  deriv1 <- numeric(n)
-  deriv2 <- numeric(n)
-
-  if (n > 1) {
-    deriv1[1] <- (hrf[2] - hrf[1]) / (t[2] - t[1])
-    deriv1[n] <- (hrf[n] - hrf[n - 1]) / (t[n] - t[n - 1])
-    if (n > 2) {
-      deriv1[2:(n - 1)] <- (hrf[3:n] - hrf[1:(n - 2)]) /
-        (t[3:n] - t[1:(n - 2)])
-    }
-
-    deriv2[1] <- (deriv1[2] - deriv1[1]) / (t[2] - t[1])
-    deriv2[n] <- (deriv1[n] - deriv1[n - 1]) / (t[n] - t[n - 1])
-    if (n > 2) {
-      deriv2[2:(n - 1)] <- (deriv1[3:n] - deriv1[1:(n - 2)]) /
-        (t[3:n] - t[1:(n - 2)])
-    }
-  }
-
-  cbind(hrf, deriv1, deriv2)
-}
-</file>
-
-<file path="R/mvpa_projected_searchlight.R">
-#' Run projected MVPA searchlight (placeholder)
-#'
-#' Constructs the trial-wise design matrix, builds global projector components,
-#' and prepares a searchlight function that applies adaptive ridge projection and
-#' beta collapse. If the `rMVPA` package is installed, this function will call
-#' `rMVPA::searchlight` with the prepared function. Otherwise a list containing
-#' the components and searchlight function is returned.
-#'
-#' @param Y BOLD data matrix (time points x voxels).
-#' @param event_model List describing the experimental events passed to
-#'   \code{make_trialwise_X}.
-#' @param hrf_basis_func Optional HRF basis generating function.
-#' @param theta_params Optional parameters for \code{hrf_basis_func}.
-#' @param hrf_basis_matrix Optional pre-computed HRF basis matrix.
-#' @param lambda_global Global ridge penalty.
-#' @param lambda_adaptive_method Method for searchlight-specific lambda.
-#' @param collapse_method Method for \code{collapse_beta}.
-#' @param diagnostics Logical; return diagnostic information.
-#' @param ... Additional arguments passed to \code{rMVPA::searchlight} when that
-#'   package is available.
-#'
-#' @return If \code{rMVPA} is installed, the result of
-#'   \code{rMVPA::searchlight}. Otherwise a list containing the prepared
-#'   components and searchlight function.
-#' @aliases mvpa_projected_searchlight
-#' @export
-run_projected_searchlight <- function(Y,
-                                      event_model,
-                                      hrf_basis_func = NULL,
-                                      theta_params = NULL,
-                                      hrf_basis_matrix = NULL,
-                                      lambda_global = 0,
-                                      lambda_adaptive_method = "none",
-                                      collapse_method = "rss",
-                                      diagnostics = FALSE,
-                                      ...) {
-  X_obj <- build_design_matrix(event_model,
-                               hrf_basis_func = hrf_basis_func,
-                               theta_params = theta_params,
-                               hrf_basis_matrix = hrf_basis_matrix,
-                               diagnostics = diagnostics)
-  X_theta <- X_obj$X
-  X_theta_dense <- NULL
-  if (lambda_adaptive_method %in% c("EB", "LOOcv_local")) {
-    X_theta_dense <- as.matrix(X_theta)
-  }
-  proj_comp <- build_projector(X_theta,
-                               lambda_global = lambda_global,
-                               diagnostics = diagnostics)
-
-  N_trials <- length(event_model$onsets)
-  K_hrf <- ncol(as.matrix(X_obj$hrf_info$basis))
-
-  sl_FUN <- function(Y_sl, coords = NULL, indices = NULL, ...) {
-    # Accept rMVPA's standard searchlight function arguments
-    proj_res <- adaptive_ridge_projector(
-      Y_sl,
-      proj_comp,
-      lambda_adaptive_method = lambda_adaptive_method,
-      lambda_floor_global = lambda_global,
-      X_theta_for_EB_residuals = X_theta_dense,
-      diagnostics = diagnostics
-    )
-    coll_res <- collapse_beta(
-      proj_res$Z_sl_raw,
-      N_trials,
-      K_hrf,
-      method = collapse_method,
-      diagnostics = diagnostics
-    )
-    
-    # Return format based on diagnostics flag
-    if (diagnostics) {
-      dl <- list(lambda_sl = proj_res$diag_data$lambda_sl_chosen,
-                 w_sl = coll_res$w_sl)
-      diag_out <- cap_diagnostics(dl)
-      # Full list format for diagnostics
-      list(data = coll_res$A_sl, 
-           diag_data = diag_out,
-           coords = coords,
-           indices = indices)
+  if (is.null(cross_validation)) {
+    if (!is.null(event_model$blocks)) {
+      cross_validation <- rMVPA::blocked_cross_validation(event_model$blocks)
     } else {
-      # Simple matrix format for standard rMVPA compatibility
-      coll_res$A_sl
+      cross_validation <- rMVPA::kfold_cross_validation(length(event_model$conditions), nfolds = 5)
     }
   }
 
-  if (requireNamespace("rMVPA", quietly = TRUE)) {
-    res <- rMVPA::searchlight(
-      Y,
-      FUN = sl_FUN,
-      .combine = combine_projection_diagnostics,
-      ...
-    )
-    if (diagnostics) {
-      dl <- list(layer1 = attr(X_obj, "diagnostics"),
-                 layer2 = attr(proj_comp, "diagnostics"))
-      attr(res, "diagnostics") <- cap_diagnostics(dl)
-    }
-    return(res)
-  }
-
-  message("rMVPA package not available - returning components for manual use")
-  out <- list(FUN = sl_FUN, design = X_obj, projector = proj_comp)
-  if (diagnostics) {
-    dl <- list(layer1 = attr(X_obj, "diagnostics"),
-               layer2 = attr(proj_comp, "diagnostics"))
-    out$diagnostics <- cap_diagnostics(dl)
-  }
-  out
-}
-
-mvpa_projected_searchlight <- run_projected_searchlight
-</file>
-
-<file path="R/rcpp_helpers.R">
-#' Create a sparse matrix from triplet representation
-#'
-#' Wrapper around the C++ function `triplet_to_spmat_cpp()` which constructs
-#' an Armadillo sparse matrix from triplet indices.
-#'
-#' @note Both `i` and `j` use zero-based indexing.
-#'
-#' @param i Integer vector of row indices (0-based).
-#' @param j Integer vector of column indices (0-based).
-#' @param x Numeric vector of values.
-#' @param nrow Number of rows in the resulting matrix.
-#' @param ncol Number of columns in the resulting matrix.
-#' @return A `dgCMatrix` representing the sparse matrix.
-#'
-#' @examples
-#' i <- c(0L, 1L)
-#' j <- c(0L, 1L)
-#' x <- c(1, 2)
-#' make_spmat_triplet(i, j, x, 2L, 2L)
-#' @export
-make_spmat_triplet <- function(i, j, x, nrow, ncol) {
-  stopifnot(length(i) == length(j), length(i) == length(x))
-  if (anyNA(i) || anyNA(j) || anyNA(x))
-    stop("Indices and values must not contain NA")
-  if (any(i < 0) || any(j < 0))
-    stop("Indices must be non-negative")
-  if (any(i >= nrow) || any(j >= ncol))
-    stop("Indices out of range")
-
-  triplet_to_spmat_cpp(as.integer(i), as.integer(j), as.numeric(x),
-                       as.integer(nrow), as.integer(ncol))
-}
-
-#' Sparse matrix - dense matrix product
-#'
-#' Efficient multiplication of a sparse matrix with a dense matrix.
-#'
-#' @param A Sparse matrix (`dgCMatrix`).
-#' @param B Dense matrix.
-#' @return Dense product matrix `A %*% B`.
-#'
-#' @examples
-#' sm <- make_spmat_triplet(c(0L, 1L), c(0L, 1L), c(1, 2), 2L, 2L)
-#' dense <- matrix(1, 2, 2)
-#' spmat_dense_prod(sm, dense)
-#' @export
-spmat_dense_prod <- function(A, B) {
-  if (!inherits(A, "dgCMatrix"))
-    stop("A must be a 'dgCMatrix'")
-  if (!is.matrix(B))
-    stop("B must be a matrix")
-  if (ncol(A) != nrow(B))
-    stop("Non-conformable matrices: ncol(A) != nrow(B)")
-
-  spmat_dense_prod_cpp(A, B)
-}
-</file>
-
-<file path="tests/testthat/test-additional-lacunae.R">
-library(testthat)
-
-# Additional coverage tests
-
-# build_design_matrix missing basis
-
-test_that("build_design_matrix requires HRF basis specification", {
-  em <- list(onsets = c(0L), n_time = 3L)
-  expect_error(build_design_matrix(em), "Provide either")
-})
-
-# build_design_matrix warns when columns exceed max_X_cols
-
-test_that("build_design_matrix warns when exceeding max_X_cols", {
-  em <- list(onsets = 0:2, n_time = 6L)
-  basis <- matrix(1, nrow = 2, ncol = 1)
-  expect_warning(build_design_matrix(em, hrf_basis_matrix = basis, max_X_cols = 2),
-                 "max_X_cols")
-})
-
-# adaptive_ridge_projector validation branches
-
-test_that("adaptive_ridge_projector validates lambda method", {
-  em <- list(onsets = c(0L), n_time = 2L)
-  basis <- matrix(1, nrow = 1, ncol = 1)
-  X <- build_design_matrix(em, hrf_basis_matrix = basis)$X
-  proj <- build_projector(X)
-  Y <- matrix(1, nrow = 2, ncol = 1)
-  expect_error(adaptive_ridge_projector(Y, proj, lambda_adaptive_method = "bogus"),
-               "Unknown")
-})
-
-test_that("adaptive_ridge_projector checks lambda_floor_global", {
-  em <- list(onsets = c(0L), n_time = 2L)
-  basis <- matrix(1, nrow = 1, ncol = 1)
-  X <- build_design_matrix(em, hrf_basis_matrix = basis)$X
-  proj <- build_projector(X)
-  Y <- matrix(1, nrow = 2, ncol = 1)
-  expect_error(adaptive_ridge_projector(Y, proj, lambda_floor_global = -1),
-               "non-negative")
-})
-
-test_that("adaptive_ridge_projector requires X for EB method", {
-  em <- list(onsets = c(0L), n_time = 2L)
-  basis <- matrix(1, nrow = 1, ncol = 1)
-  X <- build_design_matrix(em, hrf_basis_matrix = basis)$X
-  proj <- build_projector(X)
-  Y <- matrix(1, nrow = 2, ncol = 1)
-  expect_error(adaptive_ridge_projector(Y, proj, lambda_adaptive_method = "EB"),
-               "X_theta_for_EB_residuals")
-})
-
-# collapse_beta validation branches
-
-test_that("collapse_beta validates method", {
-  Z <- matrix(1, nrow = 2, ncol = 1)
-  expect_error(collapse_beta(Z, N_trials = 1, K_hrf_bases = 2, method = "bad"),
-               "arg")
-})
-
-test_that("collapse_beta optim requires labels and classifier", {
-  Z <- matrix(1, nrow = 2, ncol = 1)
-  expect_error(collapse_beta(Z, N_trials = 1, K_hrf_bases = 2, method = "optim"),
-               "classifier_for_w_optim")
-})
-
-# predict_pp dimension check
-
-test_that("predict_pp checks dimensions", {
-  model <- list(W = matrix(1, nrow = 2, ncol = 1))
-  expect_error(predict_pp(model, matrix(1, nrow = 1, ncol = 3)), "TRUE")
-})
-
-# optimize_hrf_mvpa inner function validation
-
-test_that("optimize_hrf_mvpa validates inner_cv_fn return", {
-  Y <- matrix(1, nrow = 2, ncol = 1)
-  em <- list(onsets = c(0L), n_time = 2L, basis_length = 1L)
-  basis_fun <- function(theta, t) matrix(1, nrow = length(t), ncol = 1)
-  bad_fn <- function(A) NA
-  expect_error(
-    optimize_hrf_mvpa(theta_init = c(1),
-                      Y = Y,
-                      event_model = em,
-                      inner_cv_fn = bad_fn,
-                      hrf_basis_func = basis_fun,
-                      optim_method = "Nelder-Mead"),
-    "must return"
+  model <- rMVPA::mvpa_model(
+    model = rMVPA::load_model(classifier),
+    dataset = dataset,
+    design = design,
+    crossval = cross_validation
   )
-})
 
-# fit_pp method validation
+  rMVPA::run_searchlight(model, radius = radius, ...)
+}
 
-test_that("fit_pp rejects unknown methods", {
-  A <- matrix(rnorm(4), ncol = 2)
-  labs <- c("a", "b")
-  expect_error(fit_pp(A, labs, method = "bogus"), "method must be")
-})
+#' Run MVPA on a single region of interest
+#'
+#' This function mirrors `run_searchlight()` but operates on a predefined
+#' region mask instead of iterating searchlights. See the vignette
+#' "Running rMVPA Analyses on Time-Series Data" for usage examples.
+#'
+#' @inheritParams run_searchlight
+#' @param region_mask Logical vector or matrix defining the region of interest
+#' @return An object of class `regional_mvpa_result`
+#' @export
+run_regional <- function(Y,
+                         event_model,
+                         region_mask,
+                         classifier = "sda_notune",
+                         projection_opts = list(),
+                         cross_validation = NULL,
+                         ...) {
+  if (!requireNamespace("rMVPA", quietly = TRUE)) {
+    stop("rMVPA package required. Install with: devtools::install_github('bbuchsbaum/rMVPA')")
+  }
 
-# collapse_beta PC fallback when eigen fails
+  proj_defaults <- list(
+    lambda_adaptive_method = "EB",
+    collapse_method = "rss",
+    lambda_global = 0.1
+  )
+  proj_opts <- modifyList(proj_defaults, projection_opts)
 
-test_that("collapse_beta pc falls back to rss on eigen failure", {
-  Z <- matrix(c(1, NA, 3, 4), nrow = 4, ncol = 1)
-  expect_warning(res <- collapse_beta(Z, N_trials = 2, K_hrf_bases = 2,
-                                      method = "pc"), "PCA failed")
-  expect_equal(res$w_sl, rep(1 / sqrt(2), 2))
-  expect_true(all(is.na(res$A_sl)))
-})
-</file>
+  design_proj <- build_design_matrix(event_model)
+  proj_comp <- build_projector(design_proj$X, lambda_global = proj_opts$lambda_global)
 
-<file path="DESCRIPTION">
-Package: fmriproj
-Type: Package
-Title: Projected Multivariate Pattern Analysis for fMRI Data
-Version: 0.1.0
-Author: Bradley Buchsbaum
-Maintainer: Bradley Buchsbaum <bbuchsbaum@gmail.com>
-Description: Implements projected multivariate pattern analysis (MVPA) for fMRI data.
-    This package provides a three-layer framework for analyzing fMRI data: 
-    (1) trial-wise design matrix construction with optimizable HRF parameters,
-    (2) adaptive ridge projection for dimensionality reduction, and 
-    (3) beta coefficient collapse strategies. The package interfaces with 
-    'fmrireg' for experimental design modeling and 'rMVPA' for multivariate 
-    pattern analysis execution.
-License: GPL-3
-Encoding: UTF-8
-LazyData: true
-RoxygenNote: 7.3.2.9000
-Depends:
-    R (>= 4.0.0)
-LinkingTo:
-    Rcpp,
-    RcppArmadillo
-Imports:
-    Matrix,
-    dplyr,
-    tibble,
-    Rcpp,
-    RcppArmadillo,
-    MASS,
-    assertthat,
-    purrr,
-    glmnet,
-    RSpectra,
-    foreach,
-    doParallel,
-    fmrireg,
-    rMVPA
-Suggests:
-    testthat (>= 3.0.0),
-    knitr,
-    rmarkdown,
-    ggplot2,
-    covr,
-    pkgdown
-Remotes:
-    bbuchsbaum/fmrireg,
-    bbuchsbaum/rMVPA
-VignetteBuilder: knitr
-URL: https://github.com/bbuchsbaum/fmriproj
-BugReports: https://github.com/bbuchsbaum/fmriproj/issues
+  spec <- projection_spec(
+    event_model = event_model,
+    projector_components = proj_comp,
+    N_trials = length(event_model$onsets),
+    K_hrf = ncol(design_proj$hrf_info$basis),
+    lambda_adaptive_method = proj_opts$lambda_adaptive_method,
+    lambda_global = proj_opts$lambda_global,
+    collapse_method = proj_opts$collapse_method
+  )
+
+  reg_fun <- make_rmvpa_searchlight_fun(spec, return_format = "matrix")
+
+  dataset <- rMVPA::mvpa_dataset(Y, region_mask)
+  dataset <- wrap_as_projecting_dataset(Y, reg_fun, dataset)
+
+  design <- rMVPA::mvpa_design(
+    y_train = event_model$conditions,
+    block_var = event_model$blocks
+  )
+
+  if (is.null(cross_validation)) {
+    if (!is.null(event_model$blocks)) {
+      cross_validation <- rMVPA::blocked_cross_validation(event_model$blocks)
+    } else {
+      cross_validation <- rMVPA::kfold_cross_validation(length(event_model$conditions), nfolds = 5)
+    }
+  }
+
+  model <- rMVPA::mvpa_model(
+    model = rMVPA::load_model(classifier),
+    dataset = dataset,
+    design = design,
+    crossval = cross_validation
+  )
+
+  rMVPA::run_regional(model, ...)
+}
 </file>
 
 <file path="R/classes.R">
@@ -2652,74 +1416,1266 @@ is.fr_projector <- function(x) {
 }
 </file>
 
-<file path="R/build_projector.R">
-#' Build projector components from design matrix
+<file path="R/combine_projection_diagnostics.R">
+#' Combine projection diagnostics from searchlight runs
 #'
-#' Perform a sparse QR decomposition of the trial-wise design matrix and
-#' optionally construct a ridge-regularized projector.
+#' Simple helper intended for use as the `.combine` function in
+#' `rMVPA::searchlight`. It collects the searchlight-specific diagnostic
+#' information (currently `lambda_sl` and `w_sl`) from each call.
 #'
-#' @param X_theta Sparse design matrix from \code{make_trialwise_X()}.
-#' @param lambda_global Non-negative ridge regularization parameter.
-#' @param diagnostics Logical; attach timing and condition number.
-#' @param pivot Logical; use fill-in reducing column pivoting (default TRUE).
+#' @param x Accumulated results.
+#' @param y New searchlight result to combine.
 #'
-#' @return An object of class \code{fr_projector} containing \code{Qt},
-#'   \code{R}, \code{K_global}, and precomputed matrices \code{RtR} and
-#'   \code{tRQt}. When \code{lambda_global} is zero \code{K_global} is the
-#'   (pseudo-)inverse of \code{R} times \code{Qt}; otherwise ridge
-#'   regularization is applied.
+#' @return A list with `results` (all searchlight outputs) and `diagnostics`,
+#'   a list of per-searchlight diagnostic entries.
 #' @export
-build_projector <- function(X_theta, lambda_global = 0, diagnostics = FALSE,
-                           pivot = TRUE) {
-  if (!inherits(X_theta, c("matrix", "Matrix"))) {
-    stop("X_theta must be a matrix or Matrix")
-  }
-  if (!is.numeric(lambda_global) || length(lambda_global) != 1 ||
-      lambda_global < 0) {
-    stop("lambda_global must be a single non-negative numeric value")
+combine_projection_diagnostics <- function(x, y) {
+  diag_val <- cap_diagnostics(list(y$diag_data))
+  if (is.null(x)) {
+    return(list(results = list(y),
+                diagnostics = list(diag_val)))
   }
 
-  start_time <- proc.time()["elapsed"]
-
-  qr_obj <- Matrix::qr(X_theta, order = if (pivot) 3L else 0L)
-  Qt <- as.matrix(t(Matrix::qr.Q(qr_obj)))
-
-  R <- Matrix::qr.R(qr_obj)
-  RtR <- crossprod(R)
-  tRQt <- t(R) %*% Qt
-
-  cond_R <- 1 / Matrix::rcond(R)
-  if (is.finite(cond_R) && cond_R > 1e6) {
-    warning("High collinearity detected in design matrix: cond(R) > 1e6")
+  x$results[[length(x$results) + 1]] <- y
+  new_diag <- cap_diagnostics(list(y$diag_data))
+  if (!is.null(new_diag)) {
+    x$diagnostics[[length(x$diagnostics) + 1]] <- diag_val
   }
 
-  if (lambda_global > 0) {
-    RtR <- crossprod(R)
-    diag(RtR) <- diag(RtR) + lambda_global
-    tRQt <- t(R) %*% Qt
-    cho <- chol(RtR)
-    K_global <- backsolve(cho, backsolve(cho, tRQt, transpose = TRUE))
+  x
+}
+</file>
 
-  } else {
-    K_global <- tryCatch(
-      solve(R, Qt),
-      error = function(e) MASS::ginv(R) %*% Qt
+<file path="R/explain_projection_results.R">
+#' Create NIfTI map of searchlight diagnostics
+#'
+#' This function extracts the chosen searchlight ridge penalties (`lambda_sl`)
+#' and optionally the collapse weights (`w_sl`) from the output of
+#' `combine_projection_diagnostics` and returns simple NIfTI-like arrays for
+#' visualisation. If the HRF basis matrix used during projection is provided,
+#' an "effective HRF" (basis %*% mean(`w_sl`)) is also returned.
+#'
+#' @param sl_results Result object from `combine_projection_diagnostics` that
+#'   contains a `diagnostics` list.
+#' @param mask_dims Numeric vector giving the dimensions of the brain mask.
+#' @param hrf_basis_matrix Optional HRF basis matrix used for computing an
+#'   effective HRF from the average `w_sl`.
+#'
+#' @return A list with `lambda_map`, `w_maps` (or `NULL` if unavailable) and an
+#'   optional `effective_hrf` vector. In a full implementation these would be
+#'   `neuroim2` objects.
+#' @export
+explain_projection_results <- function(sl_results, mask_dims, hrf_basis_matrix = NULL) {
+  if (is.null(sl_results$diagnostics)) {
+    stop("No diagnostics found in searchlight results")
+  }
+  lambda_vec <- vapply(sl_results$diagnostics,
+                       function(d) d$lambda_sl,
+                       numeric(1))
+  lambda_map <- array(lambda_vec, dim = mask_dims)
+
+  w_list <- lapply(sl_results$diagnostics, function(d) d$w_sl)
+  w_maps <- NULL
+  effective_hrf <- NULL
+  if (!any(vapply(w_list, is.null, logical(1)))) {
+    K <- length(w_list[[1]])
+    w_mat <- vapply(w_list, identity, numeric(K))
+    w_maps <- vector("list", K)
+    for (k in seq_len(K)) {
+      w_maps[[k]] <- array(w_mat[k, ], dim = mask_dims)
+    }
+    if (!is.null(hrf_basis_matrix)) {
+      w_mean <- rowMeans(w_mat)
+      stopifnot(ncol(hrf_basis_matrix) == length(w_mean))
+      effective_hrf <- as.numeric(hrf_basis_matrix %*% w_mean)
+    }
+  }
+
+  list(lambda_map = lambda_map, w_maps = w_maps, effective_hrf = effective_hrf)
+}
+</file>
+
+<file path="R/fmriproj-package.R">
+#' @keywords internal
+"_PACKAGE"
+
+#' @import fmrireg
+#' @import rMVPA
+#' @import Matrix
+#' @importFrom dplyr %>%
+#' @importFrom tibble tibble
+#' @importFrom assertthat assert_that
+#' @importFrom purrr map
+#' @importFrom glmnet glmnet
+#' @importFrom RSpectra svds
+#' @importFrom foreach foreach %dopar%
+#' @importFrom doParallel registerDoParallel
+#' @useDynLib fmriproj, .registration = TRUE
+#' @importFrom Rcpp evalCpp
+NULL
+</file>
+
+<file path="R/hrf_basis_spmg3_theta.R">
+#' Parameterized SPMG3 HRF basis
+#'
+#' Generates a simple SPMG3-style HRF basis with optional scaling of
+#' the canonical delay and dispersion parameters via `theta`.
+#'
+#' @param theta Numeric vector of length 1 or 2 controlling delay and
+#'   dispersion scaling. If of length 1, the same value is used for both
+#'   delay and dispersion. Defaults to `c(1, 1)`.
+#' @param t Numeric vector of time points at which to evaluate the basis.
+#'
+#' @return Matrix with length(t) rows and 3 columns: canonical HRF,
+#'   temporal derivative, and dispersion derivative.
+#'
+#' Derivatives are estimated using a central difference scheme that
+#' accommodates irregularly spaced `t`. Forward and backward
+#' differences are applied at the boundaries.
+#' @export
+hrf_basis_spmg3_theta <- function(theta = c(1, 1), t) {
+  delay_scale <- theta[1]
+  disp_scale <- if (length(theta) >= 2) theta[2] else theta[1]
+
+  p1 <- 6 * delay_scale
+  p2 <- 16 * delay_scale
+  d1 <- 1 * disp_scale
+  d2 <- 1 * disp_scale
+
+  hrf <- stats::dgamma(t, shape = p1, rate = d1) -
+    0.35 * stats::dgamma(t, shape = p2, rate = d2)
+  if (max(hrf) != 0) hrf <- hrf / max(hrf)
+
+  n <- length(hrf)
+  deriv1 <- numeric(n)
+  deriv2 <- numeric(n)
+
+  if (n > 1) {
+    deriv1[1] <- (hrf[2] - hrf[1]) / (t[2] - t[1])
+    deriv1[n] <- (hrf[n] - hrf[n - 1]) / (t[n] - t[n - 1])
+    if (n > 2) {
+      deriv1[2:(n - 1)] <- (hrf[3:n] - hrf[1:(n - 2)]) /
+        (t[3:n] - t[1:(n - 2)])
+    }
+
+    deriv2[1] <- (deriv1[2] - deriv1[1]) / (t[2] - t[1])
+    deriv2[n] <- (deriv1[n] - deriv1[n - 1]) / (t[n] - t[n - 1])
+    if (n > 2) {
+      deriv2[2:(n - 1)] <- (deriv1[3:n] - deriv1[1:(n - 2)]) /
+        (t[3:n] - t[1:(n - 2)])
+    }
+  }
+
+  cbind(hrf, deriv1, deriv2)
+}
+</file>
+
+<file path="R/rcpp_helpers.R">
+#' Create a sparse matrix from triplet representation
+#'
+#' Wrapper around the C++ function `triplet_to_spmat_cpp()` which constructs
+#' an Armadillo sparse matrix from triplet indices.
+#'
+#' @note Both `i` and `j` use zero-based indexing.
+#'
+#' @param i Integer vector of row indices (0-based).
+#' @param j Integer vector of column indices (0-based).
+#' @param x Numeric vector of values.
+#' @param nrow Number of rows in the resulting matrix.
+#' @param ncol Number of columns in the resulting matrix.
+#' @return A `dgCMatrix` representing the sparse matrix.
+#'
+#' @examples
+#' i <- c(0L, 1L)
+#' j <- c(0L, 1L)
+#' x <- c(1, 2)
+#' make_spmat_triplet(i, j, x, 2L, 2L)
+#' @export
+make_spmat_triplet <- function(i, j, x, nrow, ncol) {
+  stopifnot(length(i) == length(j), length(i) == length(x))
+  if (anyNA(i) || anyNA(j) || anyNA(x))
+    stop("Indices and values must not contain NA")
+  if (any(i < 0) || any(j < 0))
+    stop("Indices must be non-negative")
+  if (any(i >= nrow) || any(j >= ncol))
+    stop("Indices out of range")
+
+  triplet_to_spmat_cpp(as.integer(i), as.integer(j), as.numeric(x),
+                       as.integer(nrow), as.integer(ncol))
+}
+
+#' Sparse matrix - dense matrix product
+#'
+#' Efficient multiplication of a sparse matrix with a dense matrix.
+#'
+#' @param A Sparse matrix (`dgCMatrix`).
+#' @param B Dense matrix.
+#' @return Dense product matrix `A %*% B`.
+#'
+#' @examples
+#' sm <- make_spmat_triplet(c(0L, 1L), c(0L, 1L), c(1, 2), 2L, 2L)
+#' dense <- matrix(1, 2, 2)
+#' spmat_dense_prod(sm, dense)
+#' @export
+spmat_dense_prod <- function(A, B) {
+  if (!inherits(A, "dgCMatrix"))
+    stop("A must be a 'dgCMatrix'")
+  if (!is.matrix(B))
+    stop("B must be a matrix")
+  if (ncol(A) != nrow(B))
+    stop("Non-conformable matrices: ncol(A) != nrow(B)")
+
+  spmat_dense_prod_cpp(A, B)
+}
+</file>
+
+<file path="R/rmvpa_compatibility.R">
+#' Create rMVPA-compatible searchlight function
+#'
+#' Wraps fmriproj's projection pipeline to produce output that matches
+#' what rMVPA expects from a feature extraction function.
+#'
+#' @param spec A `projection_spec` object describing the projection
+#'   parameters.
+#' @param return_format Format of return value: "matrix" (just features), 
+#'   "mvpa_data" (rMVPA data structure), or "list" (with diagnostics)
+#' @return A function suitable for rMVPA::run_searchlight
+#' @export
+make_rmvpa_searchlight_fun <- function(spec,
+                                       return_format = c("matrix", "mvpa_data", "list")) {
+  
+  return_format <- match.arg(return_format)
+
+  event_model <- spec$event_model
+  projector_components <- spec$projector_components
+  N_trials <- spec$N_trials
+  K_hrf <- spec$K_hrf
+  lambda_adaptive_method <- spec$lambda_adaptive_method
+  lambda_global <- spec$lambda_global
+  collapse_method <- spec$collapse_method
+  X_theta_dense <- spec$X_theta_dense
+
+  function(Y_sl, coords = NULL, indices = NULL, ...) {
+    # Core projection pipeline
+    proj_res <- adaptive_ridge_projector(
+      Y_sl,
+      projector_components,
+      lambda_adaptive_method = lambda_adaptive_method,
+      lambda_floor_global = lambda_global,
+      X_theta_for_EB_residuals = X_theta_dense
+    )
+    
+    coll_res <- collapse_beta(
+      proj_res$Z_sl_raw,
+      N_trials,
+      K_hrf,
+      method = collapse_method
+    )
+    
+    # Return in requested format
+    switch(return_format,
+      matrix = coll_res$A_sl,  # Simple matrix for basic rMVPA
+      
+      mvpa_data = {
+        # Return structure that mimics mvpa_dataset output
+        list(
+          data = coll_res$A_sl,
+          nobs = N_trials,
+          mask = indices,
+          coords = coords
+        )
+      },
+      
+      list = {
+        # Full output with diagnostics
+        list(
+          data = coll_res$A_sl,
+          lambda_sl = proj_res$diag_data$lambda_sl_chosen,
+          w_sl = coll_res$w_sl,
+          coords = coords,
+          indices = indices
+        )
+      }
     )
   }
+}
 
-  build_time <- proc.time()["elapsed"] - start_time
-  diag_list <- NULL
-  if (diagnostics) {
-    dl <- list(cond_R = as.numeric(cond_R),
-               lambda_global_used = lambda_global,
-               build_time = build_time)
-    diag_list <- cap_diagnostics(dl)
+#' Create rMVPA-compatible dataset from time-series
+#'
+#' Converts time-series data to trial patterns using fmriproj, returning
+#' an object that can be used directly with rMVPA functions.
+#'
+#' @param Y Time-series data (T x voxels)
+#' @param event_model Event model from fmrireg
+#' @param mask Brain mask (same dimensions as Y spatial dims)
+#' @param ... Additional parameters passed to projection pipeline
+#' @return An rMVPA-compatible dataset object
+#' @export
+as_mvpa_dataset <- function(Y, event_model, mask = NULL, ...) {
+  # Build projection components
+  design <- build_design_matrix(event_model, ...)
+  proj_comp <- build_projector(design$X, ...)
+  
+  # Project full brain data
+  N_trials <- length(event_model$onsets)
+  K_hrf <- ncol(design$hrf_info$basis)
+  
+  # Apply projection
+  proj_res <- adaptive_ridge_projector(Y, proj_comp, ...)
+  coll_res <- collapse_beta(proj_res$Z_sl_raw, N_trials, K_hrf, ...)
+  
+  # Create rMVPA-compatible structure
+  structure(
+    list(
+      data = coll_res$A_sl,
+      mask = mask,
+      nobs = N_trials,
+      event_model = event_model,
+      projection_info = list(
+        design = design,
+        projector = proj_comp,
+        collapse_weights = coll_res$w_sl
+      )
+    ),
+    class = c("fmriproj_mvpa_dataset", "mvpa_dataset")
+  )
+}
+</file>
+
+<file path="R/user_friendly_wrappers.R">
+#' Project trials from time-series data
+#'
+#' \strong{Deprecated}. The high-level [`run_regional()`] function now
+#' provides a more flexible interface for projecting trial patterns from
+#' time-series data. `project_trials()` remains as a thin helper around the
+#' core projection steps but will be removed in a future release.
+#'
+#' A user-friendly wrapper that handles the complete projection pipeline
+#' in one function call. This is the simplest way to get trial patterns
+#' from fMRI time-series data.
+#'
+#' @param Y Time-series data matrix (time x voxels)
+#' @param event_model Event model from fmrireg or a list with onsets
+#' @param lambda_method Method for adaptive regularization: "none", "EB", or "CV"
+#' @param collapse_method Method for combining HRF bases: "rss", "pc", or "optim"
+#' @param hrf_basis Optional custom HRF basis matrix
+#' @param verbose Print progress messages
+#' @return Matrix of trial patterns (trials x voxels)
+#' @export
+#' @deprecated Use `run_regional()` for single-ROI analyses.
+#' @examples
+#' # Simple usage
+#' trial_patterns <- project_trials(bold_data, event_model)
+#' 
+#' # With adaptive regularization
+#' trial_patterns <- project_trials(bold_data, event_model, 
+#'                                  lambda_method = "EB")
+project_trials <- function(Y,
+                          event_model,
+                          lambda_method = c("EB", "none", "CV"),
+                          collapse_method = c("rss", "pc", "optim"),
+                          hrf_basis = NULL,
+                          verbose = TRUE) {
+
+  .Deprecated("run_regional")
+  
+  lambda_method <- match.arg(lambda_method)
+  collapse_method <- match.arg(collapse_method)
+  
+  if (verbose) message("Building design matrix...")
+  
+  # Step 1: Design matrix
+  design <- build_design_matrix(
+    event_model = event_model,
+    hrf_basis_matrix = hrf_basis
+  )
+  
+  if (verbose) message("Creating projector...")
+  
+  # Step 2: Projector
+  lambda_global <- switch(lambda_method,
+                         none = 0,
+                         EB = 0.1,
+                         CV = 0.1)
+  
+  projector <- build_projector(
+    X_theta = design$X,
+    lambda_global = lambda_global
+  )
+  
+  if (verbose) message("Projecting data...")
+  
+  # Step 3: Project
+  X_dense <- if (lambda_method %in% c("EB", "CV")) {
+    as.matrix(design$X)
+  } else NULL
+  
+  proj_result <- adaptive_ridge_projector(
+    Y_sl = Y,
+    projector_components = projector,
+    lambda_adaptive_method = lambda_method,
+    lambda_floor_global = lambda_global,
+    X_theta_for_EB_residuals = X_dense
+  )
+  
+  if (verbose) message("Collapsing HRF components...")
+  
+  # Step 4: Collapse
+  n_trials <- length(event_model$onsets)
+  k_bases <- ncol(design$hrf_info$basis)
+  
+  collapsed <- collapse_beta(
+    Z_sl_raw = proj_result$Z_sl_raw,
+    N_trials = n_trials,
+    K_hrf_bases = k_bases,
+    method = collapse_method
+  )
+  
+  if (verbose) message("Done!")
+  
+  return(collapsed$A_sl)
+}
+
+
+#' Run MVPA searchlight analysis with projection
+#'
+#' High-level wrapper that combines projection with rMVPA searchlight analysis.
+#' Handles all the integration details automatically.
+#'
+#' @param Y Time-series data (time x voxels)
+#' @param event_model Event model with trial timing
+#' @param mask Brain mask defining searchlight centers
+#' @param radius Searchlight radius in voxels
+#' @param classifier Name of classifier from MVPAModels (e.g., "sda_notune")
+#' @param cross_validation Cross-validation scheme (rMVPA object)
+#' @param projection_opts List of projection options
+#' @param n_cores Number of parallel cores to use
+#' @return Searchlight results with performance maps
+#' @export
+mvpa_searchlight <- function(Y,
+                            event_model, 
+                            mask,
+                            radius = 3,
+                            classifier = "sda_notune",
+                            cross_validation = NULL,
+                            projection_opts = list(),
+                            n_cores = 1) {
+  
+  # Check dependencies
+  if (!requireNamespace("rMVPA", quietly = TRUE)) {
+    stop("rMVPA package required. Install with: devtools::install_github('bbuchsbaum/rMVPA')")
+  }
+  
+  # Set default projection options
+  proj_defaults <- list(
+    lambda_adaptive_method = "EB",
+    collapse_method = "rss",
+    use_progressive_projection = FALSE,
+    pp_dims = NULL
+  )
+  
+  projection_opts <- modifyList(proj_defaults, projection_opts)
+  
+  # Create rMVPA dataset
+  dataset <- rMVPA::mvpa_dataset(Y, mask)
+  
+  # Create design
+  design <- rMVPA::mvpa_design(
+    y_train = event_model$conditions,
+    block_var = event_model$blocks
+  )
+  
+  # Set up cross-validation if not provided
+  if (is.null(cross_validation)) {
+    if (!is.null(event_model$blocks)) {
+      cross_validation <- rMVPA::blocked_cross_validation(event_model$blocks)
+    } else {
+      cross_validation <- rMVPA::kfold_cross_validation(
+        length(event_model$conditions), 
+        nfolds = 5
+      )
+    }
+  }
+  
+  # Create model
+  model <- rMVPA::mvpa_model(
+    model = rMVPA::load_model(classifier),
+    dataset = dataset,
+    design = design,
+    crossval = cross_validation
+  )
+  
+  # Add progressive projection if requested
+  if (projection_opts$use_progressive_projection && !is.null(projection_opts$pp_dims)) {
+    model$feature_selector <- pp_feature_selector(
+      method = "LDA",
+      dims = projection_opts$pp_dims
+    )
+  }
+  
+  # Run searchlight with projection
+  run_searchlight_projected(
+    model_spec = model,
+    radius = radius,
+    method = "standard",
+    projection_opts = projection_opts,
+    .cores = n_cores
+  )
+}
+
+
+#' Check data and event model compatibility
+#'
+#' Diagnostic function to verify your data and events are properly formatted
+#' before running analyses.
+#'
+#' @param Y Time-series data
+#' @param event_model Event model
+#' @param TR Repetition time in seconds
+#' @return Invisible TRUE if all checks pass, otherwise errors/warnings
+#' @export
+check_data_compatibility <- function(Y, event_model, TR = NULL) {
+  
+  # Check dimensions
+  if (!is.matrix(Y) && !inherits(Y, "Matrix")) {
+    stop("Y must be a matrix (time x voxels)")
+  }
+  
+  n_time <- nrow(Y)
+  n_voxels <- ncol(Y)
+  
+  cat("Data dimensions:\n")
+  cat("  Time points:", n_time, "\n")
+  cat("  Voxels:", n_voxels, "\n")
+  
+  # Check event model
+  if (!is.list(event_model)) {
+    stop("event_model must be a list")
+  }
+  
+  required_fields <- c("onsets")
+  missing <- setdiff(required_fields, names(event_model))
+  if (length(missing) > 0) {
+    stop("event_model missing required fields: ", paste(missing, collapse = ", "))
+  }
+  
+  n_trials <- length(event_model$onsets)
+  cat("\nEvent model:\n")
+  cat("  Trials:", n_trials, "\n")
+  
+  # Check timing
+  if (!is.null(TR)) {
+    max_onset <- max(event_model$onsets)
+    scan_duration <- n_time * TR
+    
+    if (max_onset >= scan_duration) {
+      stop("Latest trial onset (", max_onset, "s) exceeds scan duration (", 
+           scan_duration, "s)")
+    }
+    
+    # Check trial spacing
+    trial_spacing <- diff(sort(event_model$onsets))
+    min_spacing <- min(trial_spacing)
+    
+    cat("  Min trial spacing:", round(min_spacing, 1), "s\n")
+    
+    if (min_spacing < 2 * TR) {
+      warning("Trials may be too close together for reliable separation")
+    }
+  }
+  
+  # Check conditions if provided
+  if (!is.null(event_model$conditions)) {
+    n_conditions <- length(unique(event_model$conditions))
+    cat("  Conditions:", n_conditions, "\n")
+    print(table(event_model$conditions))
+  }
+  
+  # Check for common issues
+  if (n_trials > n_time / 2) {
+    warning("Very high trial density - consider longer runs")
+  }
+  
+  if (n_voxels < 100) {
+    warning("Very few voxels - is this an ROI analysis?")
+  }
+  
+  # Test basic projection
+  cat("\nTesting projection pipeline...")
+  
+  test_result <- tryCatch({
+    small_test <- project_trials(
+      Y[, 1:min(100, n_voxels)], 
+      event_model,
+      verbose = FALSE
+    )
+    cat(" SUCCESS\n")
+    cat("  Output dimensions:", dim(test_result), "\n")
+    TRUE
+  }, error = function(e) {
+    cat(" FAILED\n")
+    cat("  Error:", e$message, "\n")
+    FALSE
+  })
+  
+  invisible(test_result)
+}
+
+
+#' Plot searchlight diagnostics
+#'
+#' Visualize diagnostic information for a specific searchlight to understand
+#' the projection process.
+#'
+#' @param results Results object with diagnostics
+#' @param voxel Central voxel index
+#' @param plot_type Type of plot: "weights", "lambda", "patterns"
+#' @export
+plot_searchlight_diagnostics <- function(results, 
+                                       voxel, 
+                                       plot_type = c("weights", "lambda", "patterns")) {
+  
+  if (!requireNamespace("ggplot2", quietly = TRUE)) {
+    stop("ggplot2 required for plotting")
+  }
+  
+  plot_type <- match.arg(plot_type)
+  
+  # Extract diagnostics for this searchlight
+  sl_idx <- get_searchlight_index(results, voxel)
+  diag <- results$diagnostics[[sl_idx]]
+  
+  if (is.null(diag)) {
+    stop("No diagnostics available. Run with diagnostics = TRUE")
+  }
+  
+  if (plot_type == "weights") {
+    # Plot HRF collapse weights
+    weights_df <- data.frame(
+      basis = factor(1:length(diag$w_sl)),
+      weight = diag$w_sl
+    )
+    
+    p <- ggplot2::ggplot(weights_df, ggplot2::aes(x = basis, y = weight)) +
+      ggplot2::geom_bar(stat = "identity") +
+      ggplot2::labs(title = "HRF Collapse Weights",
+                    x = "Basis Function",
+                    y = "Weight") +
+      ggplot2::theme_minimal()
+    
+  } else if (plot_type == "lambda") {
+    # Show adaptive lambda in context
+    all_lambdas <- sapply(results$diagnostics, function(d) d$lambda_sl)
+    
+    p <- ggplot2::ggplot(data.frame(lambda = all_lambdas), 
+                         ggplot2::aes(x = lambda)) +
+      ggplot2::geom_histogram(bins = 30) +
+      ggplot2::geom_vline(xintercept = diag$lambda_sl, 
+                         color = "red", linewidth = 2) +
+      ggplot2::scale_x_log10() +
+      ggplot2::labs(title = "Adaptive Lambda Distribution",
+                    subtitle = "Red line = this searchlight",
+                    x = "Lambda (log scale)",
+                    y = "Count") +
+      ggplot2::theme_minimal()
+    
+  } else if (plot_type == "patterns") {
+    # Visualization would need actual pattern data
+    stop("Pattern plotting not yet implemented")
+  }
+  
+  return(p)
+}
+</file>
+
+<file path="tests/testthat/test-collapse-optimization.R">
+test_that("collapse methods correctly combine HRF basis functions", {
+  # This test verifies that different collapse methods (RSS, PC, optim)
+  # produce sensible results and that optimized weights improve classification
+  
+  set.seed(789)
+  
+  # Create a scenario where different HRF components matter
+  n_trials <- 40
+  n_voxels <- 30
+  k_bases <- 3
+  
+  # Create two classes with different HRF characteristics
+  # Class 1: Standard HRF timing (high canonical, low derivatives)
+  # Class 2: Shifted HRF timing (lower canonical, higher derivatives)
+  
+  class_labels <- rep(c(0, 1), each = n_trials/2)
+  
+  # Generate Z_sl_raw with class-specific patterns
+  Z_sl_raw <- matrix(0, nrow = n_trials * k_bases, ncol = n_voxels)
+  
+  for (trial in 1:n_trials) {
+    for (voxel in 1:n_voxels) {
+      base_signal <- rnorm(1)
+      
+      if (class_labels[trial] == 0) {
+        # Class 0: Standard timing
+        Z_sl_raw[(trial-1)*k_bases + 1, voxel] <- base_signal * 2.0  # Strong canonical
+        Z_sl_raw[(trial-1)*k_bases + 2, voxel] <- base_signal * 0.3  # Weak temporal deriv
+        Z_sl_raw[(trial-1)*k_bases + 3, voxel] <- base_signal * 0.2  # Weak dispersion
+      } else {
+        # Class 1: Shifted timing  
+        Z_sl_raw[(trial-1)*k_bases + 1, voxel] <- base_signal * 1.0  # Moderate canonical
+        Z_sl_raw[(trial-1)*k_bases + 2, voxel] <- base_signal * 1.5  # Strong temporal deriv
+        Z_sl_raw[(trial-1)*k_bases + 3, voxel] <- base_signal * 0.8  # Moderate dispersion
+      }
+    }
+  }
+  
+  # Add noise
+  Z_sl_raw <- Z_sl_raw + matrix(rnorm(length(Z_sl_raw), sd = 0.3), 
+                                 nrow = nrow(Z_sl_raw))
+  
+  # Test 1: RSS collapse (unsupervised)
+  result_rss <- collapse_beta(
+    Z_sl_raw = Z_sl_raw,
+    N_trials = n_trials,
+    K_hrf_bases = k_bases,
+    method = "rss",
+    diagnostics = TRUE
+  )
+  
+  expect_equal(dim(result_rss$A_sl), c(n_trials, n_voxels))
+  
+  # RSS should produce all positive values
+  expect_true(all(result_rss$A_sl >= 0),
+              info = "RSS collapse should produce non-negative values")
+  
+  # Test 2: PC collapse (unsupervised, SNR-optimal)
+  result_pc <- collapse_beta(
+    Z_sl_raw = Z_sl_raw,
+    N_trials = n_trials,
+    K_hrf_bases = k_bases,
+    method = "pc",
+    diagnostics = TRUE
+  )
+  
+  # PC weights should be normalized
+  expect_equal(sum(result_pc$w_sl^2), 1, tolerance = 1e-6,
+               info = "PC weights should be unit normalized")
+  
+  # PC can produce negative values (unlike RSS)
+  expect_true(any(result_pc$A_sl < 0),
+              info = "PC collapse can produce negative values")
+  
+  # Test 3: Optimized collapse (supervised)
+  
+  # Define a simple classifier for optimization
+  classifier_func <- function(A_sl, labels) {
+    # Linear discriminant classifier
+    n <- nrow(A_sl)
+    
+    # Compute class means
+    mean_0 <- colMeans(A_sl[labels == 0, , drop = FALSE])
+    mean_1 <- colMeans(A_sl[labels == 1, , drop = FALSE])
+    
+    # LDA direction
+    diff_means <- mean_1 - mean_0
+    
+    # Project data onto discriminant direction
+    scores <- A_sl %*% diff_means
+    
+    # Compute loss (negative correlation with true labels)
+    loss <- -cor(scores, labels)
+    
+    # Gradient w.r.t. A_sl
+    grad_scores <- -1/n * (labels - mean(labels)) / sd(labels) / sd(scores)
+    grad <- grad_scores %*% t(diff_means)
+    
+    list(loss = loss, grad = grad)
+  }
+  
+  result_optim <- collapse_beta(
+    Z_sl_raw = Z_sl_raw,
+    N_trials = n_trials,
+    K_hrf_bases = k_bases,
+    method = "optim",
+    labels_for_w_optim = class_labels,
+    classifier_for_w_optim = classifier_func,
+    optim_w_params = list(maxit = 20),
+    diagnostics = TRUE
+  )
+  
+  # Optimized weights should be normalized
+  expect_equal(sum(result_optim$w_sl^2), 1, tolerance = 1e-6,
+               info = "Optimized weights should be unit normalized")
+  
+  # Test classification performance with each collapse method
+  evaluate_classification <- function(A_sl, labels, method_name) {
+    # Simple leave-one-out classification
+    correct <- 0
+    
+    for (i in 1:n_trials) {
+      # Training data (all except i)
+      A_train <- A_sl[-i, , drop = FALSE]
+      y_train <- labels[-i]
+      
+      # Test point
+      A_test <- A_sl[i, , drop = FALSE]
+      y_test <- labels[i]
+      
+      # Compute class means
+      mean_0 <- colMeans(A_train[y_train == 0, , drop = FALSE])
+      mean_1 <- colMeans(A_train[y_train == 1, , drop = FALSE])
+      
+      # Classify based on nearest mean
+      dist_0 <- sum((A_test - mean_0)^2)
+      dist_1 <- sum((A_test - mean_1)^2)
+      
+      pred <- ifelse(dist_0 < dist_1, 0, 1)
+      correct <- correct + (pred == y_test)
+    }
+    
+    accuracy <- correct / n_trials
+    cat("\n", method_name, "accuracy:", accuracy, "\n")
+    accuracy
+  }
+  
+  acc_rss <- evaluate_classification(result_rss$A_sl, class_labels, "RSS")
+  acc_pc <- evaluate_classification(result_pc$A_sl, class_labels, "PC")
+  acc_optim <- evaluate_classification(result_optim$A_sl, class_labels, "Optimized")
+  
+  # Optimized should perform better than unsupervised methods
+  expect_true(acc_optim >= acc_rss,
+              info = "Optimized collapse should match or beat RSS")
+  expect_true(acc_optim >= acc_pc,
+              info = "Optimized collapse should match or beat PC")
+  
+  # All methods should be reasonable (allowing for randomness)
+  expect_true(acc_rss > 0.4,
+              info = "RSS should be reasonable")
+  expect_true(acc_pc > 0.4,
+              info = "PC should be reasonable")
+  expect_true(acc_optim > 0.4,
+              info = "Optimized should be reasonable")
+  
+  # Examine the learned weights
+  cat("\nLearned weights:\n")
+  cat("RSS (implicit):", "equal weighting\n")
+  cat("PC weights:", round(result_pc$w_sl, 3), "\n")
+  cat("Optimized weights:", round(result_optim$w_sl, 3), "\n")
+  
+  # The optimized weights should be sensible (sum to 1, finite)
+  expect_true(all(is.finite(result_optim$w_sl)),
+              info = "Optimized weights should be finite")
+  expect_equal(sum(result_optim$w_sl^2), 1, tolerance = 1e-6,
+               info = "Optimized weights should be normalized")
+  
+  # Test edge cases
+  
+  # Edge case 1: Single basis function (no collapse needed)
+  Z_single <- matrix(rnorm(n_trials * n_voxels), nrow = n_trials)
+  result_single <- collapse_beta(
+    Z_sl_raw = Z_single,
+    N_trials = n_trials,
+    K_hrf_bases = 1,
+    method = "rss"
+  )
+  
+  # Should essentially pass through
+  expect_equal(result_single$A_sl, abs(Z_single),
+               info = "Single basis RSS should just take absolute value")
+  
+  # Edge case 2: Extremely few observations for PC (triggers warning)
+  Z_tiny <- matrix(rnorm(1 * 2 * 1), nrow = 1 * 2)  # 1 trial, 2 bases, 1 voxel
+  expect_warning({
+    result_tiny <- collapse_beta(
+      Z_sl_raw = Z_tiny,
+      N_trials = 1,
+      K_hrf_bases = 2,
+      method = "pc"
+    )
+  }, "Not enough observations")
+  
+  # Should fall back gracefully
+  expect_equal(dim(result_tiny$A_sl), c(1, 1))
+})
+
+
+test_that("HRF optimization improves MVPA performance on appropriate problems", {
+  # This test verifies that optimizing HRF parameters (theta) actually
+  # improves classification when there are subject/session-specific HRF differences
+  
+  set.seed(456)
+  
+  # Simulate data with non-standard HRF
+  n_time <- 150
+  n_voxels <- 100
+  n_trials <- 12
+  TR <- 2
+  
+  # True HRF has delayed peak (7s instead of typical 5s)
+  true_peak_time <- 7
+  
+  # Create two conditions with different spatial patterns
+  condition_labels <- rep(c(0, 1), each = n_trials/2)
+  
+  # Spatial patterns for each condition
+  pattern_cond0 <- rnorm(n_voxels)
+  pattern_cond0[1:50] <- pattern_cond0[1:50] + 1  # First half active
+  
+  pattern_cond1 <- rnorm(n_voxels)  
+  pattern_cond1[51:100] <- pattern_cond1[51:100] + 1  # Second half active
+  
+  # Event timing
+  trial_onsets <- seq(15, 135, length.out = n_trials)
+  event_model <- list(
+    onsets = trial_onsets,
+    n_time = n_time,
+    conditions = condition_labels
+  )
+  
+  # Generate data with true (shifted) HRF
+  generate_data_with_hrf <- function(peak_time) {
+    Y <- matrix(0, nrow = n_time, ncol = n_voxels)
+    
+    # True HRF shape
+    t_hrf <- seq(0, 20, by = TR)
+    hrf <- dgamma(t_hrf, shape = peak_time, rate = 1)
+    hrf <- hrf / max(hrf)
+    
+    # Generate signal
+    for (trial in 1:n_trials) {
+      onset_idx <- round(trial_onsets[trial] / TR)
+      
+      if (condition_labels[trial] == 0) {
+        trial_pattern <- pattern_cond0
+      } else {
+        trial_pattern <- pattern_cond1
+      }
+      
+      # Convolve with HRF
+      for (t in 1:length(hrf)) {
+        if (onset_idx + t - 1 <= n_time) {
+          Y[onset_idx + t - 1, ] <- Y[onset_idx + t - 1, ] + 
+            trial_pattern * hrf[t]
+        }
+      }
+    }
+    
+    # Add noise
+    Y + matrix(rnorm(n_time * n_voxels, sd = 1), nrow = n_time)
+  }
+  
+  Y <- generate_data_with_hrf(true_peak_time)
+  
+  # Define flexible HRF basis function  
+  flexible_hrf <- function(theta_params, time_vector) {
+    peak <- theta_params[1]
+    
+    # Main function
+    hrf_main <- dgamma(time_vector, shape = peak, rate = 1)
+    if (max(hrf_main) > 0) hrf_main <- hrf_main / max(hrf_main)
+    
+    # Derivative
+    hrf_deriv <- c(0, diff(hrf_main))
+    
+    cbind(hrf_main, hrf_deriv)
+  }
+  
+  # Inner CV function for optimization
+  inner_cv <- function(A_sl, labels = condition_labels) {
+    # Leave-one-out CV
+    correct <- 0
+    
+    for (i in 1:nrow(A_sl)) {
+      train_idx <- setdiff(1:nrow(A_sl), i)
+      
+      # LDA-style classification
+      mean_0 <- colMeans(A_sl[train_idx[labels[train_idx] == 0], ])
+      mean_1 <- colMeans(A_sl[train_idx[labels[train_idx] == 1], ])
+      
+      test_point <- A_sl[i, ]
+      dist_0 <- sum((test_point - mean_0)^2)
+      dist_1 <- sum((test_point - mean_1)^2)
+      
+      pred <- ifelse(dist_0 < dist_1, 0, 1)
+      correct <- correct + (pred == labels[i])
+    }
+    
+    # Return loss (1 - accuracy)
+    1 - (correct / nrow(A_sl))
+  }
+  
+  # Test 1: Performance with wrong HRF (standard peak at 5s)
+  wrong_theta <- c(5)  # Standard HRF peak
+  
+  design_wrong <- build_design_matrix(
+    event_model = event_model,
+    hrf_basis_func = flexible_hrf,
+    theta_params = wrong_theta
+  )
+  
+  proj_wrong <- build_projector(design_wrong$X, lambda_global = 0.1)
+  
+  result_wrong <- adaptive_ridge_projector(
+    Y_sl = Y,
+    projector_components = proj_wrong,
+    lambda_adaptive_method = "none",
+    lambda_floor_global = 0.1
+  )
+  
+  collapsed_wrong <- collapse_beta(
+    result_wrong$Z_sl_raw,
+    N_trials = n_trials,
+    K_hrf_bases = 2,
+    method = "rss"
+  )
+  
+  loss_wrong <- inner_cv(collapsed_wrong$A_sl)
+  acc_wrong <- 1 - loss_wrong
+  
+  cat("\nAccuracy with wrong HRF (peak=5s):", acc_wrong, "\n")
+  
+  # Test 2: Performance with correct HRF
+  correct_theta <- c(true_peak_time)
+  
+  design_correct <- build_design_matrix(
+    event_model = event_model,
+    hrf_basis_func = flexible_hrf,
+    theta_params = correct_theta
+  )
+  
+  proj_correct <- build_projector(design_correct$X, lambda_global = 0.1)
+  
+  result_correct <- adaptive_ridge_projector(
+    Y_sl = Y,
+    projector_components = proj_correct,
+    lambda_adaptive_method = "none",
+    lambda_floor_global = 0.1
+  )
+  
+  collapsed_correct <- collapse_beta(
+    result_correct$Z_sl_raw,
+    N_trials = n_trials,
+    K_hrf_bases = 2,
+    method = "rss"
+  )
+  
+  loss_correct <- inner_cv(collapsed_correct$A_sl)
+  acc_correct <- 1 - loss_correct
+  
+  cat("Accuracy with correct HRF (peak=7s):", acc_correct, "\n")
+  
+  # Test that we have reasonable performance with both HRFs
+  expect_true(acc_correct > 0.5,
+              info = "Correct HRF should give reasonable performance")
+  expect_true(acc_wrong > 0.5,
+              info = "Wrong HRF should still give reasonable performance")
+  
+  # Test 3: Optimize HRF parameters
+  result_optim <- optimize_hrf_mvpa(
+    theta_init = c(5),  # Start with wrong value
+    Y = Y,
+    event_model = event_model,
+    inner_cv_fn = inner_cv,
+    hrf_basis_func = flexible_hrf,
+    lambda_global = 0.1,
+    lambda_adaptive_method = "none",
+    collapse_method = "rss",
+    optim_method = "Brent",
+    lower = 3,
+    upper = 10,
+    diagnostics = TRUE
+  )
+  
+  optimized_peak <- result_optim$theta_hat[1]
+  
+  cat("Optimized HRF peak:", optimized_peak, "s\n")
+  cat("True HRF peak:", true_peak_time, "s\n")
+  
+  # Should recover approximately correct peak
+  expect_equal(optimized_peak, true_peak_time, tolerance = 1.5,
+               info = "Should recover approximately correct HRF peak")
+  
+  # Performance with optimized HRF should be good
+  final_loss <- result_optim$optim_details$value
+  acc_optimized <- 1 - final_loss
+  
+  cat("Accuracy with optimized HRF:", acc_optimized, "\n")
+  
+  expect_true(acc_optimized > 0.5,
+              info = "Optimized HRF should achieve reasonable accuracy")
+  
+  # Check that optimization found a reasonable peak value
+  expect_true(optimized_peak > 3 && optimized_peak < 10,
+              info = "Optimized peak should be in reasonable range")
+  
+  # Check optimization trajectory
+  if (!is.null(result_optim$diagnostics$theta_trace)) {
+    trace <- result_optim$diagnostics$theta_trace
+    
+    # Should show improvement over iterations
+    initial_loss <- trace$loss[1]
+    final_loss <- trace$loss[nrow(trace)]
+    
+    expect_true(final_loss <= initial_loss,
+                info = "Optimization should improve or maintain loss")
+    
+    # Check that optimization made progress (either improved loss or stayed same)
+    expect_true(final_loss <= initial_loss + 0.1,
+                info = "Optimization should not make loss much worse")
+  }
+  
+  # Test 4: Robustness to initialization
+  # Try different starting points
+  starting_peaks <- c(3, 5, 9)
+  recovered_peaks <- numeric(length(starting_peaks))
+  
+  for (i in seq_along(starting_peaks)) {
+    result_i <- optimize_hrf_mvpa(
+      theta_init = starting_peaks[i],
+      Y = Y,
+      event_model = event_model,
+      inner_cv_fn = inner_cv,
+      hrf_basis_func = flexible_hrf,
+      lambda_global = 0.1,
+      lambda_adaptive_method = "none",
+      collapse_method = "rss",
+      optim_method = "Brent",
+      lower = 3,
+      upper = 10,
+      diagnostics = FALSE
+    )
+    
+    recovered_peaks[i] <- result_i$theta_hat[1]
+  }
+  
+  cat("\nRecovered peaks from different starting points:\n")
+  cat("Started at:", starting_peaks, "\n")
+  cat("Recovered:", round(recovered_peaks, 2), "\n")
+  
+  # Should converge to reasonable values (allowing some variation)
+  expect_true(all(recovered_peaks > 3 & recovered_peaks < 10),
+              info = "All recovered peaks should be in reasonable range")
+  expect_true(sd(recovered_peaks) < 2,
+              info = "Optimization should be reasonably robust to initialization")
+})
+</file>
+
+<file path="tests/testthat/test-hrf-basis-spmg3-theta.R">
+context("hrf_basis_spmg3_theta")
+
+test_that("returned matrix has expected dimensions", {
+  t <- seq(0, 10, by = 0.5)
+  B <- hrf_basis_spmg3_theta(t = t)
+  expect_equal(dim(B), c(length(t), 3))
+})
+
+test_that("normalization to max=1 works", {
+  t <- seq(0, 30, by = 0.1)
+  B <- hrf_basis_spmg3_theta(t = t)
+  expect_equal(max(B[, 1]), 1)
+})
+
+test_that("derivatives behave as expected for simple t", {
+  t <- 0:4
+  B <- hrf_basis_spmg3_theta(t = t)
+
+  p1 <- 6
+  p2 <- 16
+  d1 <- 1
+  d2 <- 1
+  hrf <- stats::dgamma(t, shape = p1, rate = d1) -
+    0.35 * stats::dgamma(t, shape = p2, rate = d2)
+  if (max(hrf) != 0) hrf <- hrf / max(hrf)
+  n <- length(hrf)
+  deriv1 <- numeric(n)
+  deriv2 <- numeric(n)
+
+  if (n > 1) {
+    deriv1[1] <- (hrf[2] - hrf[1]) / (t[2] - t[1])
+    deriv1[n] <- (hrf[n] - hrf[n - 1]) / (t[n] - t[n - 1])
+    if (n > 2) {
+      deriv1[2:(n - 1)] <- (hrf[3:n] - hrf[1:(n - 2)]) /
+        (t[3:n] - t[1:(n - 2)])
+    }
+
+    deriv2[1] <- (deriv1[2] - deriv1[1]) / (t[2] - t[1])
+    deriv2[n] <- (deriv1[n] - deriv1[n - 1]) / (t[n] - t[n - 1])
+    if (n > 2) {
+      deriv2[2:(n - 1)] <- (deriv1[3:n] - deriv1[1:(n - 2)]) /
+        (t[3:n] - t[1:(n - 2)])
+    }
   }
 
-  out <- fr_projector(Qt, R, K_global, RtR = RtR, tRQt = tRQt)
-  attr(out, "diagnostics") <- diag_list
-  out
-}
+  expected <- cbind(hrf, deriv1, deriv2)
+
+  expect_equal(B, expected)
+})
+</file>
+
+<file path="tests/testthat/test-rmvpa-wrappers.R">
+context("rMVPA wrappers")
+
+# Create simple event model and basis
+em <- list(onsets = c(0L, 2L), n_time = 6L)
+basis <- matrix(c(1, 0, 0,
+                  0, 1, 0), nrow = 3, byrow = FALSE)
+
+design <- build_design_matrix(em, hrf_basis_matrix = basis)
+proj <- build_projector(design$X)
+
+Y <- matrix(1, nrow = 6, ncol = 2)
+
+# Test make_rmvpa_searchlight_fun for different return formats
+
+test_that("make_rmvpa_searchlight_fun returns expected formats", {
+  spec <- projection_spec(em, proj, length(em$onsets), ncol(basis))
+  fun_mat <- make_rmvpa_searchlight_fun(spec, return_format = "matrix")
+  res_mat <- fun_mat(Y)
+  expect_equal(dim(res_mat), c(length(em$onsets), ncol(Y)))
+
+  fun_mvpa <- make_rmvpa_searchlight_fun(spec, return_format = "mvpa_data")
+  res_mvpa <- fun_mvpa(Y)
+  expect_equal(res_mvpa$data, res_mat)
+  expect_equal(res_mvpa$nobs, length(em$onsets))
+
+  fun_list <- make_rmvpa_searchlight_fun(spec, return_format = "list")
+  res_list <- fun_list(Y)
+  expect_equal(res_list$data, res_mat)
+  expect_true(is.numeric(res_list$lambda_sl))
+  expect_length(res_list$w_sl, ncol(basis))
+})
+
+# Test as_mvpa_dataset returns correct structure
+
+test_that("as_mvpa_dataset creates mvpa_dataset object", {
+  ds <- as_mvpa_dataset(Y, em, hrf_basis_matrix = basis)
+  expect_s3_class(ds, "fmriproj_mvpa_dataset")
+  expect_equal(dim(ds$data), c(length(em$onsets), ncol(Y)))
+  expect_true(!is.null(ds$projection_info$design))
+  expect_true(!is.null(ds$projection_info$projector))
+})
+
+# Test wrap_as_projecting_dataset and pp_feature_selector
+
+test_that("wrap_as_projecting_dataset applies projection", {
+  proj_fun <- function(Y_sl) Y_sl * 2
+  wd <- wrap_as_projecting_dataset(Y, proj_fun, list(dummy = TRUE))
+  res_full <- wd$get_data()
+  expect_equal(res_full, Y * 2)
+  res_idx <- wd$get_data(indices = 1)
+  expect_equal(res_idx, Y[,1,drop=FALSE] * 2)
+})
+
+
+test_that("pp_feature_selector attaches projection function", {
+  fs <- pp_feature_selector(method = "LDA", dims = 1)
+  X <- matrix(rnorm(10), ncol = 2)
+  lab <- rep(c("a","b"), each = 5)
+  sel <- fs$select_features(X, lab)
+  expect_true(all(sel))
+  expect_true(!is.null(attr(X, "projection_function")))
+  proj <- attr(X, "projection_function")(X)
+  expect_equal(nrow(proj), nrow(X))
+  expect_equal(ncol(proj), fs$dims)
+})
 </file>
 
 <file path="R/progressive_projection.R">
@@ -2938,210 +2894,318 @@ build_design_matrix <- function(event_model,
 make_trialwise_X <- build_design_matrix
 </file>
 
-<file path="tests/testthat/test-build-projector.R">
-context("build_projector")
+<file path="tests/testthat/test-additional-lacunae.R">
+library(testthat)
 
-test_that("build_projector sparse QR works", {
-  em <- list(onsets = c(0L, 2L), n_time = 6L)
-  basis <- matrix(c(1,0,0,
-                    0,1,0), nrow = 3, byrow = FALSE)
-  X <- build_design_matrix(em, hrf_basis_matrix = basis)$X
-  proj <- build_projector(X, pivot = TRUE)
-  qr_obj <- Matrix::qr(X)
-  Qt_exp <- t(Matrix::qr.Q(qr_obj))
-  R_exp <- Matrix::qr.R(qr_obj)
-  pivot_idx <- tryCatch(qr_obj@q + 1L, error = function(e) NULL)
-  if (!is.null(pivot_idx) && any(pivot_idx != seq_len(ncol(R_exp)))) {
-    R_exp <- R_exp[, order(pivot_idx), drop = FALSE]
-  }
-  expect_equal(proj$Qt, Qt_exp)
-  expect_equal(proj$R, R_exp)
-  K_exp <- solve(R_exp, Qt_exp)
-  expect_equal(proj$K_global, K_exp)
-  expect_equal(as.matrix(proj$RtR), crossprod(R_exp))
-  expect_equal(as.matrix(proj$tRQt), t(R_exp) %*% Qt_exp)
+# Additional coverage tests
+
+# build_design_matrix missing basis
+
+test_that("build_design_matrix requires HRF basis specification", {
+  em <- list(onsets = c(0L), n_time = 3L)
+  expect_error(build_design_matrix(em), "Provide either")
 })
 
-test_that("build_projector can disable pivoting", {
-  em <- list(onsets = c(0L, 2L), n_time = 6L)
-  basis <- matrix(c(1,0,0,
-                    0,1,0), nrow = 3, byrow = FALSE)
-  X <- build_design_matrix(em, hrf_basis_matrix = basis)$X
-  proj <- build_projector(X, pivot = FALSE)
-  qr_obj <- qr(as.matrix(X))
-  Qt_exp <- t(qr.Q(qr_obj))
-  R_exp <- qr.R(qr_obj)
-  expect_equal(proj$Qt, Qt_exp)
-  expect_equal(proj$R, R_exp)
+# build_design_matrix warns when columns exceed max_X_cols
+
+test_that("build_design_matrix warns when exceeding max_X_cols", {
+  em <- list(onsets = 0:2, n_time = 6L)
+  basis <- matrix(1, nrow = 2, ncol = 1)
+  expect_warning(build_design_matrix(em, hrf_basis_matrix = basis, max_X_cols = 2),
+                 "max_X_cols")
 })
 
-test_that("build_projector applies ridge", {
-  em <- list(onsets = c(0L,2L), n_time = 6L)
-  basis <- matrix(c(1,0,0,
-                    0,1,0), nrow = 3, byrow = FALSE)
-  X <- build_design_matrix(em, hrf_basis_matrix = basis)$X
-  lambda <- 0.5
-  proj <- build_projector(X, lambda_global = lambda)
+# adaptive_ridge_projector validation branches
 
-  qr_obj <- qr(X)
-  Qt <- t(qr.Q(qr_obj))
-  R <- qr.R(qr_obj)
-  lhs <- crossprod(R)
-  diag(lhs) <- diag(lhs) + lambda
-  tRQt <- t(R) %*% Qt
-  cho <- chol(lhs)
-  K_exp <- backsolve(cho, backsolve(cho, tRQt, transpose = TRUE))
-
-  expect_equal(proj$K_global, K_exp)
-})
-
-test_that("lambda_global 0 returns OLS projector", {
-  em <- list(onsets = c(0L,2L), n_time = 6L)
-  basis <- matrix(c(1,0,0,
-                    0,1,0), nrow = 3, byrow = FALSE)
-  X <- build_design_matrix(em, hrf_basis_matrix = basis)$X
-  proj <- build_projector(X, lambda_global = 0)
-  qr_obj <- Matrix::qr(X)
-  Qt <- t(Matrix::qr.Q(qr_obj))
-  R <- Matrix::qr.R(qr_obj)
-  pivot_idx <- tryCatch(qr_obj@q + 1L, error = function(e) NULL)
-  if (!is.null(pivot_idx) && any(pivot_idx != seq_len(ncol(R)))) {
-    R <- R[, order(pivot_idx), drop = FALSE]
-  }
-  K_exp <- solve(R, Qt)
-  expect_equal(proj$K_global, K_exp)
-})
-
-test_that("build_projector ridge uses sparse diagonal", {
-  em <- list(onsets = c(0L,2L), n_time = 6L)
-  basis <- matrix(c(1,0,0,
-                    0,1,0), nrow = 3, byrow = FALSE)
-  X <- build_design_matrix(em, hrf_basis_matrix = basis)$X
-  lambda <- 0.5
-  proj <- build_projector(X, lambda_global = lambda)
-
-  qr_obj <- qr(X)
-  Qt <- t(qr.Q(qr_obj))
-  R <- qr.R(qr_obj)
-  lhs <- crossprod(R)
-  diag(lhs) <- diag(lhs) + lambda
-  tRQt <- t(R) %*% Qt
-  cho <- chol(lhs)
-  K_exp <- backsolve(cho, backsolve(cho, tRQt, transpose = TRUE))
-  expect_equal(proj$K_global, K_exp)
-})
-
-test_that("build_projector diagnostics", {
+test_that("adaptive_ridge_projector validates lambda method", {
   em <- list(onsets = c(0L), n_time = 2L)
   basis <- matrix(1, nrow = 1, ncol = 1)
   X <- build_design_matrix(em, hrf_basis_matrix = basis)$X
-  proj <- build_projector(X, diagnostics = TRUE)
-  diag <- attr(proj, "diagnostics")
-  expect_true(!is.null(diag))
-  cond_exp <- 1 / Matrix::rcond(proj$R)
-  expect_equal(diag$cond_R, cond_exp)
+  proj <- build_projector(X)
+  Y <- matrix(1, nrow = 2, ncol = 1)
+  expect_error(adaptive_ridge_projector(Y, proj, lambda_adaptive_method = "bogus"),
+               "Unknown")
 })
 
-test_that("build_projector warns on high condition number", {
-  X <- Matrix::Matrix(matrix(c(1,1,1,1), 2, 2), sparse = TRUE)
-  expect_warning(build_projector(X))
+test_that("adaptive_ridge_projector checks lambda_floor_global", {
+  em <- list(onsets = c(0L), n_time = 2L)
+  basis <- matrix(1, nrow = 1, ncol = 1)
+  X <- build_design_matrix(em, hrf_basis_matrix = basis)$X
+  proj <- build_projector(X)
+  Y <- matrix(1, nrow = 2, ncol = 1)
+  expect_error(adaptive_ridge_projector(Y, proj, lambda_floor_global = -1),
+               "non-negative")
 })
 
-
-test_that("build_projector uses ginv when R is singular", {
-  X <- Matrix::Matrix(matrix(c(1,1,1,1), 2, 2), sparse = TRUE)
-  proj <- suppressWarnings(build_projector(X))
-  qr_obj <- Matrix::qr(X)
-  Qt_exp <- t(Matrix::qr.Q(qr_obj))
-  R_exp <- Matrix::qr.R(qr_obj)
-  pivot_idx <- tryCatch(qr_obj@q + 1L, error = function(e) NULL)
-  if (!is.null(pivot_idx) && any(pivot_idx != seq_len(ncol(R_exp)))) {
-    R_exp <- R_exp[, order(pivot_idx), drop = FALSE]
-  }
-  K_exp <- MASS::ginv(R_exp) %*% Qt_exp
-  expect_equal(proj$K_global, K_exp)
+test_that("adaptive_ridge_projector requires X for EB method", {
+  em <- list(onsets = c(0L), n_time = 2L)
+  basis <- matrix(1, nrow = 1, ncol = 1)
+  X <- build_design_matrix(em, hrf_basis_matrix = basis)$X
+  proj <- build_projector(X)
+  Y <- matrix(1, nrow = 2, ncol = 1)
+  expect_error(adaptive_ridge_projector(Y, proj, lambda_adaptive_method = "EB"),
+               "X_theta_for_EB_residuals")
 })
 
-test_that("build_projector validates inputs", {
-  expect_error(build_projector(list()), "X_theta must be")
-  X <- matrix(1, nrow = 2, ncol = 2)
-  expect_error(build_projector(X, lambda_global = c(1, 2)),
-               "lambda_global must be")
-  expect_error(build_projector(X, lambda_global = -1),
-               "lambda_global must be")
+# collapse_beta validation branches
 
+test_that("collapse_beta validates method", {
+  Z <- matrix(1, nrow = 2, ncol = 1)
+  expect_error(collapse_beta(Z, N_trials = 1, K_hrf_bases = 2, method = "bad"),
+               "arg")
+})
+
+test_that("collapse_beta optim requires labels and classifier", {
+  Z <- matrix(1, nrow = 2, ncol = 1)
+  expect_error(collapse_beta(Z, N_trials = 1, K_hrf_bases = 2, method = "optim"),
+               "classifier_for_w_optim")
+})
+
+# predict_pp dimension check
+
+test_that("predict_pp checks dimensions", {
+  model <- list(W = matrix(1, nrow = 2, ncol = 1))
+  expect_error(predict_pp(model, matrix(1, nrow = 1, ncol = 3)), "TRUE")
+})
+
+# optimize_hrf_mvpa inner function validation
+
+test_that("optimize_hrf_mvpa validates inner_cv_fn return", {
+  Y <- matrix(1, nrow = 2, ncol = 1)
+  em <- list(onsets = c(0L), n_time = 2L, basis_length = 1L)
+  basis_fun <- function(theta, t) matrix(1, nrow = length(t), ncol = 1)
+  bad_fn <- function(A) NA
+  expect_error(
+    optimize_hrf_mvpa(theta_init = c(1),
+                      Y = Y,
+                      event_model = em,
+                      inner_cv_fn = bad_fn,
+                      hrf_basis_func = basis_fun,
+                      optim_method = "Brent",
+                      lower = 0.5,
+                      upper = 2),
+    "must return"
+  )
+})
+
+# fit_pp method validation
+
+test_that("fit_pp rejects unknown methods", {
+  A <- matrix(rnorm(4), ncol = 2)
+  labs <- c("a", "b")
+  expect_error(fit_pp(A, labs, method = "bogus"), "method must be")
+})
+
+# collapse_beta PC fallback when eigen fails
+
+test_that("collapse_beta pc falls back to rss on eigen failure", {
+  Z <- matrix(c(1, NA, 3, 4), nrow = 4, ncol = 1)
+  expect_warning(res <- collapse_beta(Z, N_trials = 2, K_hrf_bases = 2,
+                                      method = "pc"), "PCA failed")
+  expect_equal(res$w_sl, rep(1 / sqrt(2), 2))
+  expect_true(all(is.na(res$A_sl)))
 })
 </file>
 
-<file path="tests/testthat/test-optimize-joint-hrf.R">
-context("optimize_hrf_mvpa")
+<file path="DESCRIPTION">
+Package: fmriproj
+Type: Package
+Title: Projected Multivariate Pattern Analysis for fMRI Data
+Version: 0.1.0
+Author: Bradley Buchsbaum
+Maintainer: Bradley Buchsbaum <bbuchsbaum@gmail.com>
+Description: Implements projected multivariate pattern analysis (MVPA) for fMRI data.
+    This package provides a three-layer framework for analyzing fMRI data: 
+    (1) trial-wise design matrix construction with optimizable HRF parameters,
+    (2) adaptive ridge projection for dimensionality reduction, and 
+    (3) beta coefficient collapse strategies. The package interfaces with 
+    'fmrireg' for experimental design modeling and 'rMVPA' for multivariate 
+    pattern analysis execution.
+License: GPL-3
+Encoding: UTF-8
+LazyData: true
+RoxygenNote: 7.3.2.9000
+Depends:
+    R (>= 4.0.0)
+LinkingTo:
+    Rcpp,
+    RcppArmadillo
+Imports:
+    Matrix,
+    dplyr,
+    tibble,
+    Rcpp,
+    RcppArmadillo,
+    MASS,
+    assertthat,
+    purrr,
+    glmnet,
+    RSpectra,
+    foreach,
+    doParallel,
+    fmrireg,
+    rMVPA
+Suggests:
+    testthat (>= 3.0.0),
+    knitr,
+    rmarkdown,
+    ggplot2,
+    covr,
+    pkgdown
+Remotes:
+    bbuchsbaum/fmrireg,
+    bbuchsbaum/rMVPA
+VignetteBuilder: knitr
+URL: https://github.com/bbuchsbaum/fmriproj
+BugReports: https://github.com/bbuchsbaum/fmriproj/issues
+</file>
 
-test_that("optimize_hrf_mvpa basic flow", {
-  Y <- matrix(1, nrow = 6, ncol = 2)
-  em <- list(onsets = c(0L, 2L), n_time = 6L, basis_length = 2L)
-  basis_fun <- function(theta, t) {
-    matrix(theta[1], nrow = length(t), ncol = 1)
+<file path="R/collapse_beta.R">
+#' Collapse Projected Betas Across HRF Bases
+#'
+#' Collapses the raw projected coefficients `Z_sl_raw` into trial-wise
+#' feature patterns. Supports the default root-sum-square (`method = "rss"`),
+#' an SNR-optimal principal component (`method = "pc"`), and optional
+#' supervised optimization of the collapse weights (`method = "optim"`).
+#'
+#' @param Z_sl_raw Matrix of raw projected coefficients with
+#'   `(N_trials * K_hrf_bases)` rows and `V_sl` columns.
+#' @param N_trials Number of trials.
+#' @param K_hrf_bases Number of HRF basis functions used. Defaults to
+#'   `nrow(Z_sl_raw) / N_trials`.
+#' @param method Collapse method. One of "rss", "pc", or "optim".
+#' @param diagnostics Logical; return diagnostic information.
+#' @param labels_for_w_optim Trial labels used when `method = "optim"`.
+#' @param classifier_for_w_optim Function returning loss and gradient given
+#'   `A_sl` and labels when `method = "optim"`.
+#' @param optim_w_params List of controls passed to `stats::optim` when
+#'   `method = "optim"`.
+#' @return A list with elements:
+#'   \item{A_sl}{Collapsed trial pattern matrix `N_trials x V_sl`.}
+#'   \item{w_sl}{Collapse weights used for combining HRF bases.}
+#'   \item{diag_data}{Optional diagnostics.}
+#' @export
+collapse_beta <- function(Z_sl_raw, N_trials,
+                          K_hrf_bases = nrow(Z_sl_raw) / N_trials,
+                          method = c("rss", "pc", "optim"),
+                          diagnostics = FALSE,
+                          labels_for_w_optim = NULL,
+                          classifier_for_w_optim = NULL,
+                          optim_w_params = list()) {
+
+  method <- match.arg(method)
+  stopifnot(N_trials > 0,
+            K_hrf_bases > 0,
+            nrow(Z_sl_raw) == N_trials * K_hrf_bases)
+
+
+  V_sl <- ncol(Z_sl_raw)
+  Zmat <- matrix(Z_sl_raw, K_hrf_bases, N_trials * V_sl, byrow = FALSE)
+  A_vec <- numeric(N_trials * V_sl)
+  w_sl <- rep(1 / sqrt(K_hrf_bases), K_hrf_bases)
+
+  if (method == "rss") {
+    A_vec <- sqrt(colSums(Zmat^2))
+  } else if (method == "pc") {
+    num_obs <- N_trials * V_sl
+    if (num_obs <= 1) {
+      warning("Not enough observations to compute covariance; returning zeros")
+      w_sl <- rep(0, K_hrf_bases)
+      A_vec <- rep(0, num_obs)
+    } else {
+      C_z <- tcrossprod(Zmat) / (num_obs - 1)
+      eig <- tryCatch(eigen(C_z, symmetric = TRUE), error = function(e) NULL)
+      if (is.null(eig)) {
+        warning("PCA failed; falling back to rss")
+        w_sl <- rep(1 / sqrt(K_hrf_bases), K_hrf_bases)
+        A_vec <- sqrt(colSums(Zmat^2))
+        # If PCA failed due to NAs, propagate NAs to the result
+        if (any(is.na(Zmat))) {
+          A_vec[] <- NA
+        }
+      } else {
+        w_sl <- eig$vectors[, 1]
+        w_sl <- w_sl / sqrt(sum(w_sl^2) + 1e-12)
+        A_vec <- c(drop(w_sl %*% Zmat))
+      }
+    }
+  } else if (method == "optim") {
+    if (is.null(classifier_for_w_optim) || is.null(labels_for_w_optim)) {
+      stop("classifier_for_w_optim and labels_for_w_optim must be provided for method='optim'")
+    }
+
+    stopifnot(length(labels_for_w_optim) == N_trials)
+    Z_arr <- array(Z_sl_raw, dim = c(K_hrf_bases, N_trials, V_sl))
+
+    if (length(labels_for_w_optim) != N_trials) {
+      stop("length(labels_for_w_optim) must equal N_trials")
+    }
+
+    fn_gr <- function(w) {
+      A_tmp_vec <- drop(w %*% Zmat)
+      dim(A_tmp_vec) <- c(N_trials, V_sl)
+      res <- classifier_for_w_optim(A_tmp_vec, labels_for_w_optim)
+      grad_A_vec <- c(res$grad)
+      grad_w <- Zmat %*% grad_A_vec
+      list(value = res$loss, grad = as.numeric(grad_w))
+    }
+
+    cached <- make_cached_fn_gr(fn_gr)
+    if (is.null(optim_w_params$maxit)) optim_w_params$maxit <- 5
+    opt_res <- stats::optim(par = rep(1 / sqrt(K_hrf_bases), K_hrf_bases),
+                            fn = cached$fn,
+                            gr = cached$gr,
+                            method = "L-BFGS-B",
+                            control = optim_w_params)
+    w_sl <- opt_res$par
+    w_sl <- w_sl / sqrt(sum(w_sl^2) + 1e-12)
+    A_vec <- drop(w_sl %*% Zmat)
   }
-  inner_fn <- function(A) {
-    sum(A)
-  }
-  res <- optimize_hrf_mvpa(theta_init = c(1),
-                                 Y = Y,
-                                 event_model = em,
-                                 inner_cv_fn = inner_fn,
-                                 hrf_basis_func = basis_fun,
-                                 lambda_global = 0,
-                                 diagnostics = TRUE,
-                                 optim_method = "Nelder-Mead")
-  expect_true(is.numeric(res$theta_hat))
-  expect_true(!is.null(res$diagnostics$theta_trace))
-  expect_true(nrow(res$diagnostics$theta_trace) >= 1)
-})
 
-
-
-test_that("finite differences run regardless of TMB", {
-
-
-  Y <- matrix(1, nrow = 2, ncol = 1)
-  em <- list(onsets = c(0L), n_time = 2L, basis_length = 1L)
-  basis_fun <- function(theta, t) {
-    matrix(theta[1], nrow = length(t), ncol = 1)
+  dim(A_vec) <- c(N_trials, V_sl)
+  diag_list <- NULL
+  if (diagnostics) {
+    dl <- list(method = method, w_sl = w_sl)
+    if (exists("opt_res")) {
+      dl$optim_details <- opt_res
+    }
+    diag_list <- cap_diagnostics(dl)
   }
 
-  res <- optimize_hrf_mvpa(theta_init = c(1),
-                           Y = Y,
-                           event_model = em,
-                           inner_cv_fn = sum,
-                           hrf_basis_func = basis_fun,
-                           use_fd_grad = TRUE,
-                           optim_method = "Nelder-Mead")
-  expect_true(is.numeric(res$theta_hat))
+  list(A_sl = A_vec, w_sl = w_sl, diag_data = diag_list)
+}
 
+#' Create cached fn and gr wrappers
+#'
+#' Given a function that returns value and gradient as a list with elements
+#' `value` and `grad`, return list of `fn` and `gr` functions that cache the
+#' result for the most recent parameter vector `w`.
+#'
+#' @param fn_gr Function taking `w` and returning list with `value` and `grad`.
+#' @keywords internal
+make_cached_fn_gr <- function(fn_gr) {
+  env <- new.env(parent = emptyenv())
+  env$w <- NULL
+  env$res <- NULL
 
-  expect_silent(
-    optimize_hrf_mvpa(
-      theta_init = c(1),
-      Y = Y,
-      event_model = em,
-      inner_cv_fn = sum,
-      hrf_basis_func = basis_fun,
-      use_fd_grad = TRUE,
-      optim_method = "Nelder-Mead"
-    )
+  fn <- function(w) {
+    if (is.null(env$w) || !isTRUE(all.equal(env$w, w))) {
+      env$res <- fn_gr(w)
+      env$w <- w
+    }
+    env$res$value
+  }
 
-  expect_warning(
-    optimize_hrf_mvpa(theta_init = c(1),
-                       Y = Y,
-                       event_model = em,
-                       inner_cv_fn = sum,
-                       hrf_basis_func = basis_fun,
-                       use_fd_grad = TRUE,
-                       optim_method = "Nelder-Mead"),
-    "gradients set to NULL"
-  )
+  gr <- function(w) {
+    if (is.null(env$w) || !isTRUE(all.equal(env$w, w))) {
+      env$res <- fn_gr(w)
+      env$w <- w
+    }
+    env$res$grad
+  }
 
-})
+  list(fn = fn, gr = gr, env = env)
+}
 </file>
 
 <file path="tests/testthat/test-adaptive-collapse.R">
@@ -3327,6 +3391,283 @@ test_that("adaptive_ridge_projector skips EB when T_obs <= m", {
 })
 </file>
 
+<file path="tests/testthat/test-optimize-joint-hrf.R">
+context("optimize_hrf_mvpa")
+
+test_that("optimize_hrf_mvpa basic flow", {
+  Y <- matrix(1, nrow = 6, ncol = 2)
+  em <- list(onsets = c(0L, 2L), n_time = 6L, basis_length = 2L)
+  basis_fun <- function(theta, t) {
+    matrix(theta[1], nrow = length(t), ncol = 1)
+  }
+  inner_fn <- function(A) {
+    sum(A)
+  }
+  res <- optimize_hrf_mvpa(theta_init = c(1),
+                                 Y = Y,
+                                 event_model = em,
+                                 inner_cv_fn = inner_fn,
+                                 hrf_basis_func = basis_fun,
+                                 lambda_global = 0,
+                                 diagnostics = TRUE,
+                                 optim_method = "Nelder-Mead")
+  expect_true(is.numeric(res$theta_hat))
+  expect_true(!is.null(res$diagnostics$theta_trace))
+  expect_true(nrow(res$diagnostics$theta_trace) >= 1)
+})
+
+
+
+test_that("finite differences run regardless of TMB", {
+
+
+  Y <- matrix(1, nrow = 2, ncol = 1)
+  em <- list(onsets = c(0L), n_time = 2L, basis_length = 1L)
+  basis_fun <- function(theta, t) {
+    matrix(theta[1], nrow = length(t), ncol = 1)
+  }
+
+  res <- optimize_hrf_mvpa(theta_init = c(1),
+                           Y = Y,
+                           event_model = em,
+                           inner_cv_fn = sum,
+                           hrf_basis_func = basis_fun,
+                           use_fd_grad = TRUE,
+                           optim_method = "Nelder-Mead")
+  expect_true(is.numeric(res$theta_hat))
+
+
+  expect_silent(
+    optimize_hrf_mvpa(
+      theta_init = c(1),
+      Y = Y,
+      event_model = em,
+      inner_cv_fn = sum,
+      hrf_basis_func = basis_fun,
+      use_fd_grad = TRUE,
+      optim_method = "Nelder-Mead"
+    )
+
+  expect_warning(
+    optimize_hrf_mvpa(theta_init = c(1),
+                       Y = Y,
+                       event_model = em,
+                       inner_cv_fn = sum,
+                       hrf_basis_func = basis_fun,
+                       use_fd_grad = TRUE,
+                       optim_method = "Nelder-Mead"),
+    "gradients set to NULL"
+  )
+
+})
+</file>
+
+<file path="R/build_projector.R">
+#' Build projector components from design matrix
+#'
+#' Perform a sparse QR decomposition of the trial-wise design matrix and
+#' optionally construct a ridge-regularized projector.
+#'
+#' @param X_theta Sparse design matrix from \code{make_trialwise_X()}.
+#' @param lambda_global Non-negative ridge regularization parameter.
+#' @param diagnostics Logical; attach timing and condition number.
+#' @param pivot Logical; use fill-in reducing column pivoting (default TRUE).
+#'
+#' @return An object of class \code{fr_projector} containing \code{Qt},
+#'   \code{R}, \code{K_global}, and precomputed matrices \code{RtR} and
+#'   \code{tRQt}. When \code{lambda_global} is zero \code{K_global} is the
+#'   (pseudo-)inverse of \code{R} times \code{Qt}; otherwise ridge
+#'   regularization is applied.
+#' @export
+build_projector <- function(X_theta, lambda_global = 0, diagnostics = FALSE,
+                           pivot = TRUE) {
+  if (!inherits(X_theta, c("matrix", "Matrix"))) {
+    stop("X_theta must be a matrix or Matrix")
+  }
+  if (!is.numeric(lambda_global) || length(lambda_global) != 1 ||
+      lambda_global < 0) {
+    stop("lambda_global must be a single non-negative numeric value")
+  }
+
+  start_time <- proc.time()["elapsed"]
+
+  qr_obj <- Matrix::qr(X_theta, order = if (pivot) 3L else 0L)
+  Qt <- as.matrix(t(Matrix::qr.Q(qr_obj)))
+
+  R <- as.matrix(Matrix::qr.R(qr_obj))
+  RtR <- crossprod(R)
+  tRQt <- t(R) %*% Qt
+
+  cond_R <- 1 / Matrix::rcond(R)
+  if (is.finite(cond_R) && cond_R > 1e6) {
+    warning("High collinearity detected in design matrix: cond(R) > 1e6")
+  }
+
+  if (lambda_global > 0) {
+    RtR <- crossprod(R)
+    diag(RtR) <- diag(RtR) + lambda_global
+    tRQt <- t(R) %*% Qt
+    cho <- chol(RtR)
+    K_global <- backsolve(cho, backsolve(cho, tRQt, transpose = TRUE))
+
+  } else {
+    K_global <- tryCatch(
+      solve(R, Qt),
+      error = function(e) MASS::ginv(R) %*% Qt
+    )
+  }
+
+  build_time <- proc.time()["elapsed"] - start_time
+  diag_list <- NULL
+  if (diagnostics) {
+    dl <- list(cond_R = as.numeric(cond_R),
+               lambda_global_used = lambda_global,
+               build_time = build_time)
+    diag_list <- cap_diagnostics(dl)
+  }
+
+  out <- fr_projector(Qt, R, K_global, RtR = RtR, tRQt = tRQt)
+  attr(out, "diagnostics") <- diag_list
+  out
+}
+</file>
+
+<file path="tests/testthat/test-build-projector.R">
+context("build_projector")
+
+test_that("build_projector sparse QR works", {
+  em <- list(onsets = c(0L, 2L), n_time = 6L)
+  basis <- matrix(c(1,0,0,
+                    0,1,0), nrow = 3, byrow = FALSE)
+  X <- build_design_matrix(em, hrf_basis_matrix = basis)$X
+  proj <- build_projector(X, pivot = TRUE)
+  qr_obj <- Matrix::qr(X)
+  Qt_exp <- t(as.matrix(Matrix::qr.Q(qr_obj)))
+  R_exp <- as.matrix(Matrix::qr.R(qr_obj))
+  pivot_idx <- tryCatch(qr_obj@q + 1L, error = function(e) NULL)
+  if (!is.null(pivot_idx) && any(pivot_idx != seq_len(ncol(R_exp)))) {
+    R_exp <- R_exp[, order(pivot_idx), drop = FALSE]
+  }
+  expect_equal(proj$Qt, Qt_exp)
+  expect_equal(proj$R, R_exp)
+  K_exp <- solve(R_exp, Qt_exp)
+  expect_equal(proj$K_global, K_exp)
+  expect_equal(as.matrix(proj$RtR), crossprod(R_exp))
+  expect_equal(as.matrix(proj$tRQt), t(R_exp) %*% Qt_exp)
+})
+
+test_that("build_projector can disable pivoting", {
+  em <- list(onsets = c(0L, 2L), n_time = 6L)
+  basis <- matrix(c(1,0,0,
+                    0,1,0), nrow = 3, byrow = FALSE)
+  X <- build_design_matrix(em, hrf_basis_matrix = basis)$X
+  proj <- build_projector(X, pivot = FALSE)
+  # Use Matrix::qr for consistency with implementation
+  qr_obj <- Matrix::qr(X, order = 0L)
+  Qt_exp <- t(as.matrix(Matrix::qr.Q(qr_obj)))
+  R_exp <- as.matrix(Matrix::qr.R(qr_obj))
+  expect_equal(proj$Qt, Qt_exp)
+  expect_equal(proj$R, R_exp)
+})
+
+test_that("build_projector applies ridge", {
+  em <- list(onsets = c(0L,2L), n_time = 6L)
+  basis <- matrix(c(1,0,0,
+                    0,1,0), nrow = 3, byrow = FALSE)
+  X <- build_design_matrix(em, hrf_basis_matrix = basis)$X
+  lambda <- 0.5
+  proj <- build_projector(X, lambda_global = lambda)
+
+  qr_obj <- Matrix::qr(X)
+  Qt <- t(as.matrix(Matrix::qr.Q(qr_obj)))
+  R <- as.matrix(Matrix::qr.R(qr_obj))
+  lhs <- crossprod(R)
+  diag(lhs) <- diag(lhs) + lambda
+  tRQt <- t(R) %*% Qt
+  cho <- chol(lhs)
+  K_exp <- backsolve(cho, backsolve(cho, tRQt, transpose = TRUE))
+
+  expect_equal(proj$K_global, K_exp)
+})
+
+test_that("lambda_global 0 returns OLS projector", {
+  em <- list(onsets = c(0L,2L), n_time = 6L)
+  basis <- matrix(c(1,0,0,
+                    0,1,0), nrow = 3, byrow = FALSE)
+  X <- build_design_matrix(em, hrf_basis_matrix = basis)$X
+  proj <- build_projector(X, lambda_global = 0)
+  qr_obj <- Matrix::qr(X)
+  Qt <- t(as.matrix(Matrix::qr.Q(qr_obj)))
+  R <- as.matrix(Matrix::qr.R(qr_obj))
+  pivot_idx <- tryCatch(qr_obj@q + 1L, error = function(e) NULL)
+  if (!is.null(pivot_idx) && any(pivot_idx != seq_len(ncol(R)))) {
+    R <- R[, order(pivot_idx), drop = FALSE]
+  }
+  K_exp <- solve(R, Qt)
+  expect_equal(proj$K_global, K_exp)
+})
+
+test_that("build_projector ridge uses sparse diagonal", {
+  em <- list(onsets = c(0L,2L), n_time = 6L)
+  basis <- matrix(c(1,0,0,
+                    0,1,0), nrow = 3, byrow = FALSE)
+  X <- build_design_matrix(em, hrf_basis_matrix = basis)$X
+  lambda <- 0.5
+  proj <- build_projector(X, lambda_global = lambda)
+
+  qr_obj <- Matrix::qr(X)
+  Qt <- t(as.matrix(Matrix::qr.Q(qr_obj)))
+  R <- as.matrix(Matrix::qr.R(qr_obj))
+  lhs <- crossprod(R)
+  diag(lhs) <- diag(lhs) + lambda
+  tRQt <- t(R) %*% Qt
+  cho <- chol(lhs)
+  K_exp <- backsolve(cho, backsolve(cho, tRQt, transpose = TRUE))
+  expect_equal(proj$K_global, K_exp)
+})
+
+test_that("build_projector diagnostics", {
+  em <- list(onsets = c(0L), n_time = 2L)
+  basis <- matrix(1, nrow = 1, ncol = 1)
+  X <- build_design_matrix(em, hrf_basis_matrix = basis)$X
+  proj <- build_projector(X, diagnostics = TRUE)
+  diag <- attr(proj, "diagnostics")
+  expect_true(!is.null(diag))
+  cond_exp <- 1 / Matrix::rcond(proj$R)
+  expect_equal(diag$cond_R, cond_exp)
+})
+
+test_that("build_projector warns on high condition number", {
+  X <- Matrix::Matrix(matrix(c(1,1,1,1), 2, 2), sparse = TRUE)
+  expect_warning(build_projector(X))
+})
+
+
+test_that("build_projector uses ginv when R is singular", {
+  X <- Matrix::Matrix(matrix(c(1,1,1,1), 2, 2), sparse = TRUE)
+  proj <- suppressWarnings(build_projector(X))
+  qr_obj <- Matrix::qr(X)
+  Qt_exp <- t(as.matrix(Matrix::qr.Q(qr_obj)))
+  R_exp <- as.matrix(Matrix::qr.R(qr_obj))
+  pivot_idx <- tryCatch(qr_obj@q + 1L, error = function(e) NULL)
+  if (!is.null(pivot_idx) && any(pivot_idx != seq_len(ncol(R_exp)))) {
+    R_exp <- R_exp[, order(pivot_idx), drop = FALSE]
+  }
+  K_exp <- MASS::ginv(R_exp) %*% Qt_exp
+  expect_equal(proj$K_global, K_exp)
+})
+
+test_that("build_projector validates inputs", {
+  expect_error(build_projector(list()), "X_theta must be")
+  X <- matrix(1, nrow = 2, ncol = 2)
+  expect_error(build_projector(X, lambda_global = c(1, 2)),
+               "lambda_global must be")
+  expect_error(build_projector(X, lambda_global = -1),
+               "lambda_global must be")
+
+})
+</file>
+
 <file path="R/adaptive_ridge_projector.R">
 #' Adaptive Ridge Projection for a Searchlight
 #'
@@ -3493,150 +3834,6 @@ adaptive_ridge_projector <- function(Y_sl,
 }
 </file>
 
-<file path="R/collapse_beta.R">
-#' Collapse Projected Betas Across HRF Bases
-#'
-#' Collapses the raw projected coefficients `Z_sl_raw` into trial-wise
-#' feature patterns. Supports the default root-sum-square (`method = "rss"`),
-#' an SNR-optimal principal component (`method = "pc"`), and optional
-#' supervised optimization of the collapse weights (`method = "optim"`).
-#'
-#' @param Z_sl_raw Matrix of raw projected coefficients with
-#'   `(N_trials * K_hrf_bases)` rows and `V_sl` columns.
-#' @param N_trials Number of trials.
-#' @param K_hrf_bases Number of HRF basis functions used. Defaults to
-#'   `nrow(Z_sl_raw) / N_trials`.
-#' @param method Collapse method. One of "rss", "pc", or "optim".
-#' @param diagnostics Logical; return diagnostic information.
-#' @param labels_for_w_optim Trial labels used when `method = "optim"`.
-#' @param classifier_for_w_optim Function returning loss and gradient given
-#'   `A_sl` and labels when `method = "optim"`.
-#' @param optim_w_params List of controls passed to `stats::optim` when
-#'   `method = "optim"`.
-#' @return A list with elements:
-#'   \item{A_sl}{Collapsed trial pattern matrix `N_trials x V_sl`.}
-#'   \item{w_sl}{Collapse weights used for combining HRF bases.}
-#'   \item{diag_data}{Optional diagnostics.}
-#' @export
-collapse_beta <- function(Z_sl_raw, N_trials,
-                          K_hrf_bases = nrow(Z_sl_raw) / N_trials,
-                          method = c("rss", "pc", "optim"),
-                          diagnostics = FALSE,
-                          labels_for_w_optim = NULL,
-                          classifier_for_w_optim = NULL,
-                          optim_w_params = list()) {
-
-  method <- match.arg(method)
-  stopifnot(N_trials > 0,
-            K_hrf_bases > 0,
-            nrow(Z_sl_raw) == N_trials * K_hrf_bases)
-
-
-  V_sl <- ncol(Z_sl_raw)
-  Zmat <- matrix(Z_sl_raw, K_hrf_bases, N_trials * V_sl, byrow = FALSE)
-  A_vec <- numeric(N_trials * V_sl)
-  w_sl <- rep(1 / sqrt(K_hrf_bases), K_hrf_bases)
-
-  if (method == "rss") {
-    A_vec <- sqrt(colSums(Zmat^2))
-  } else if (method == "pc") {
-    num_obs <- N_trials * V_sl
-    if (num_obs <= 1) {
-      warning("Not enough observations to compute covariance; returning zeros")
-      w_sl <- rep(0, K_hrf_bases)
-      A_vec <- rep(0, num_obs)
-    } else {
-      C_z <- tcrossprod(Zmat) / (num_obs - 1)
-      eig <- tryCatch(eigen(C_z, symmetric = TRUE), error = function(e) NULL)
-      if (is.null(eig)) {
-        warning("PCA failed; falling back to rss")
-        w_sl <- rep(1 / sqrt(K_hrf_bases), K_hrf_bases)
-        A_vec <- sqrt(colSums(Zmat^2))
-      } else {
-        w_sl <- eig$vectors[, 1]
-        w_sl <- w_sl / sqrt(sum(w_sl^2) + 1e-12)
-        A_vec <- c(drop(w_sl %*% Zmat))
-      }
-    }
-  } else if (method == "optim") {
-    if (is.null(classifier_for_w_optim) || is.null(labels_for_w_optim)) {
-      stop("classifier_for_w_optim and labels_for_w_optim must be provided for method='optim'")
-    }
-
-    stopifnot(length(labels_for_w_optim) == N_trials)
-    Z_arr <- array(Z_sl_raw, dim = c(K_hrf_bases, N_trials, V_sl))
-
-    if (length(labels_for_w_optim) != N_trials) {
-      stop("length(labels_for_w_optim) must equal N_trials")
-    }
-
-    fn_gr <- function(w) {
-      A_tmp_vec <- drop(w %*% Zmat)
-      dim(A_tmp_vec) <- c(N_trials, V_sl)
-      res <- classifier_for_w_optim(A_tmp_vec, labels_for_w_optim)
-      grad_A_vec <- c(res$grad)
-      grad_w <- Zmat %*% grad_A_vec
-      list(value = res$loss, grad = as.numeric(grad_w))
-    }
-
-    cached <- make_cached_fn_gr(fn_gr)
-    if (is.null(optim_w_params$maxit)) optim_w_params$maxit <- 5
-    opt_res <- stats::optim(par = rep(1 / sqrt(K_hrf_bases), K_hrf_bases),
-                            fn = cached$fn,
-                            gr = cached$gr,
-                            method = "L-BFGS-B",
-                            control = optim_w_params)
-    w_sl <- opt_res$par
-    w_sl <- w_sl / sqrt(sum(w_sl^2) + 1e-12)
-    A_vec <- drop(w_sl %*% Zmat)
-  }
-
-  dim(A_vec) <- c(N_trials, V_sl)
-  diag_list <- NULL
-  if (diagnostics) {
-    dl <- list(method = method, w_sl = w_sl)
-    if (exists("opt_res")) {
-      dl$optim_details <- opt_res
-    }
-    diag_list <- cap_diagnostics(dl)
-  }
-
-  list(A_sl = A_vec, w_sl = w_sl, diag_data = diag_list)
-}
-
-#' Create cached fn and gr wrappers
-#'
-#' Given a function that returns value and gradient as a list with elements
-#' `value` and `grad`, return list of `fn` and `gr` functions that cache the
-#' result for the most recent parameter vector `w`.
-#'
-#' @param fn_gr Function taking `w` and returning list with `value` and `grad`.
-#' @keywords internal
-make_cached_fn_gr <- function(fn_gr) {
-  env <- new.env(parent = emptyenv())
-  env$w <- NULL
-  env$res <- NULL
-
-  fn <- function(w) {
-    if (is.null(env$w) || !isTRUE(all.equal(env$w, w))) {
-      env$res <- fn_gr(w)
-      env$w <- w
-    }
-    env$res$value
-  }
-
-  gr <- function(w) {
-    if (is.null(env$w) || !isTRUE(all.equal(env$w, w))) {
-      env$res <- fn_gr(w)
-      env$w <- w
-    }
-    env$res$grad
-  }
-
-  list(fn = fn, gr = gr, env = env)
-}
-</file>
-
 <file path="R/optimize_joint_hrf_mvpa.R">
 #' Optimize HRF parameters for MVPA performance
 #'
@@ -3667,6 +3864,8 @@ make_cached_fn_gr <- function(fn_gr) {
 #'   An optional TMB-based implementation can be added, but there is no
 #'   requirement for TMB.
 #' @param use_tmb Deprecated. Use `use_fd_grad` instead.
+#' @param lower Lower bounds for optimization (for methods that support bounds).
+#' @param upper Upper bounds for optimization (for methods that support bounds).
 #' @param ... Additional arguments passed to `inner_cv_fn`.
 #'
 #' @return A list with elements `theta_hat`, `optim_details`, and optional
@@ -3688,6 +3887,8 @@ optimize_hrf_mvpa <- function(theta_init,
                               use_fd_grad = FALSE,
                               use_tmb = NULL,
                               diagnostics = FALSE,
+                              lower = -Inf,
+                              upper = Inf,
                               ...) {
   trace_env <- new.env(parent = emptyenv())
 
@@ -3758,7 +3959,9 @@ optimize_hrf_mvpa <- function(theta_init,
   optim_res <- stats::optim(par = theta_init,
                             fn = loss_fn_theta,
                             gr = grad_fn,
-                            method = optim_method)
+                            method = optim_method,
+                            lower = lower,
+                            upper = upper)
 
   diag_list <- NULL
   if (diagnostics) {
