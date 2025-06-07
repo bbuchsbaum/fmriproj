@@ -98,19 +98,33 @@ run_searchlight <- function(fmri_dset,
 #' region mask instead of iterating searchlights. See the vignette
 #' "Running rMVPA Analyses on Time-Series Data" for usage examples.
 #'
-#' @inheritParams run_searchlight
-#' @param region_mask Logical vector or matrix defining the region of interest
+#' @param fmri_dset An `fmri_dataset` containing time-series, mask and events
+#' @param region_mask A `NeuroVol` or `NeuroSurface` defining the region of interest
+#' @param y_formula Formula selecting the label column from `event_table`.
+#' @param block_formula Formula selecting the block/run column.
+#' @param classifier Name of classifier model to load with `rMVPA::load_model`
+#' @param projection_opts List of options passed to the projection step
+#' @param ... Additional arguments passed to `rMVPA::run_regional`
+#'
 #' @return An object of class `regional_mvpa_result`
 #' @export
-run_regional <- function(Y,
-                         event_model,
+run_regional <- function(fmri_dset,
                          region_mask,
+                         y_formula,
+                         block_formula,
                          classifier = "sda_notune",
                          projection_opts = list(),
-                         cross_validation = NULL,
                          ...) {
   if (!requireNamespace("rMVPA", quietly = TRUE)) {
     stop("rMVPA package required. Install with: devtools::install_github('bbuchsbaum/rMVPA')")
+  }
+
+  if (!inherits(fmri_dset, "fmri_dataset")) {
+    stop("fmri_dset must be an 'fmri_dataset'")
+  }
+
+  if (!inherits(region_mask, c("NeuroVol", "NeuroSurface"))) {
+    stop("region_mask must be a NeuroVol or NeuroSurface")
   }
 
   proj_defaults <- list(
@@ -119,6 +133,24 @@ run_regional <- function(Y,
     lambda_global = 0.1
   )
   proj_opts <- modifyList(proj_defaults, projection_opts)
+
+  Y <- fmridataset::get_data(fmri_dset)
+  event_table <- fmri_dset$event_table
+  sampling_frame <- fmri_dset$sampling_frame
+
+  if (is.null(event_table) || is.null(sampling_frame)) {
+    stop("fmri_dset must contain an event_table and sampling_frame")
+  }
+
+  y_vals <- model.frame(y_formula, event_table, drop.unused.levels = TRUE)[[1]]
+  block_vals <- model.frame(block_formula, event_table, drop.unused.levels = TRUE)[[1]]
+
+  event_model <- list(
+    onsets = event_table$onset,
+    n_time = sum(sampling_frame$blocklens),
+    conditions = y_vals,
+    blocks = block_vals
+  )
 
   design_proj <- build_design_matrix(event_model)
   proj_comp <- build_projector(design_proj$X, lambda_global = proj_opts$lambda_global)
@@ -139,16 +171,14 @@ run_regional <- function(Y,
   dataset <- wrap_as_projecting_dataset(Y, reg_fun, dataset)
 
   design <- rMVPA::mvpa_design(
-    y_train = event_model$conditions,
-    block_var = event_model$blocks
+    y_train = y_vals,
+    block_var = block_vals
   )
 
-  if (is.null(cross_validation)) {
-    if (!is.null(event_model$blocks)) {
-      cross_validation <- rMVPA::blocked_cross_validation(event_model$blocks)
-    } else {
-      cross_validation <- rMVPA::kfold_cross_validation(length(event_model$conditions), nfolds = 5)
-    }
+  if (!is.null(block_vals)) {
+    cross_validation <- rMVPA::blocked_cross_validation(block_vals)
+  } else {
+    cross_validation <- rMVPA::kfold_cross_validation(length(y_vals), nfolds = 5)
   }
 
   model <- rMVPA::mvpa_model(
