@@ -8,3 +8,24 @@ test_that("check_data_compatibility errors when event_model lacks onsets", {
     "event_model missing required fields"
   )
 })
+
+test_that("check_data_compatibility validates Y input and timing", {
+  Y <- matrix(0, nrow = 4, ncol = 2)
+  em_ok <- list(onsets = c(0, 3))
+
+  # Y must be a matrix
+  expect_error(check_data_compatibility(1:4, em_ok), "Y must be a matrix")
+
+  # Last onset cannot exceed scan duration
+  em_bad <- list(onsets = c(0, 10))
+  expect_error(
+    check_data_compatibility(Y, em_bad, TR = 2),
+    "exceeds scan duration"
+  )
+
+  # Closely spaced trials trigger a warning
+  expect_warning(
+    check_data_compatibility(Y, em_ok, TR = 2),
+    "Trials may be too close"
+  )
+})
