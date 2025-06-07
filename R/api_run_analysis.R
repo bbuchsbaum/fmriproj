@@ -1,31 +1,34 @@
-#' Run MVPA searchlight on time-series data
+#' Run MVPA searchlight on an fmridataset
 #'
 #' High-level wrapper that automatically builds the necessary
 #' `rMVPA` objects and connects them to the fmriproj projection pipeline.
 #' See the vignette "Running rMVPA Analyses on Time-Series Data" for a
 #' complete walkthrough.
 #'
-#' @param Y Time-series matrix (time x voxels)
-#' @param event_model Event model list describing trial onsets and labels
-#' @param mask Brain mask for searchlight centers
+#' @param fmri_dset An object of class `fmri_dataset` containing the
+#'   time-series, mask, event table, and sampling frame.
 #' @param radius Searchlight radius in voxels
+#' @param y_formula Formula selecting the label column from `event_table`.
+#' @param block_formula Formula selecting the block/run column.
 #' @param classifier Name of classifier model to load with `rMVPA::load_model`
 #' @param projection_opts List of options passed to the projection step
-#' @param cross_validation Optional rMVPA cross-validation object
 #' @param ... Additional arguments passed to `rMVPA::run_searchlight`
 #'
 #' @return An object of class `searchlight_result`
 #' @export
-run_searchlight <- function(Y,
-                            event_model,
-                            mask,
+run_searchlight <- function(fmri_dset,
                             radius = 3,
+                            y_formula,
+                            block_formula,
                             classifier = "sda_notune",
                             projection_opts = list(),
-                            cross_validation = NULL,
                             ...) {
   if (!requireNamespace("rMVPA", quietly = TRUE)) {
     stop("rMVPA package required. Install with: devtools::install_github('bbuchsbaum/rMVPA')")
+  }
+
+  if (!inherits(fmri_dset, "fmri_dataset")) {
+    stop("fmri_dset must be an 'fmri_dataset'")
   }
 
   proj_defaults <- list(
@@ -34,6 +37,24 @@ run_searchlight <- function(Y,
     lambda_global = 0.1
   )
   proj_opts <- modifyList(proj_defaults, projection_opts)
+
+  Y <- fmridataset::get_data(fmri_dset)
+  event_table <- fmri_dset$event_table
+  sampling_frame <- fmri_dset$sampling_frame
+
+  if (is.null(event_table) || is.null(sampling_frame)) {
+    stop("fmri_dset must contain an event_table and sampling_frame")
+  }
+
+  y_vals <- model.frame(y_formula, event_table, drop.unused.levels = TRUE)[[1]]
+  block_vals <- model.frame(block_formula, event_table, drop.unused.levels = TRUE)[[1]]
+
+  event_model <- list(
+    onsets = event_table$onset,
+    n_time = sum(sampling_frame$blocklens),
+    conditions = y_vals,
+    blocks = block_vals
+  )
 
   design_proj <- build_design_matrix(event_model)
   proj_comp <- build_projector(design_proj$X, lambda_global = proj_opts$lambda_global)
@@ -50,20 +71,15 @@ run_searchlight <- function(Y,
 
   sl_fun <- make_rmvpa_searchlight_fun(spec, return_format = "matrix")
 
-  dataset <- rMVPA::mvpa_dataset(Y, mask)
+  dataset <- create_mvpa_dataset_from_dataset(fmri_dset)
   dataset <- wrap_as_projecting_dataset(Y, sl_fun, dataset)
 
-  design <- rMVPA::mvpa_design(
-    y_train = event_model$conditions,
-    block_var = event_model$blocks
-  )
+  design <- create_mvpa_design_from_dataset(fmri_dset, y_formula, block_formula)
 
-  if (is.null(cross_validation)) {
-    if (!is.null(event_model$blocks)) {
-      cross_validation <- rMVPA::blocked_cross_validation(event_model$blocks)
-    } else {
-      cross_validation <- rMVPA::kfold_cross_validation(length(event_model$conditions), nfolds = 5)
-    }
+  if (!is.null(block_vals)) {
+    cross_validation <- rMVPA::blocked_cross_validation(block_vals)
+  } else {
+    cross_validation <- rMVPA::kfold_cross_validation(length(y_vals), nfolds = 5)
   }
 
   model <- rMVPA::mvpa_model(
