@@ -72,11 +72,6 @@ collapse_beta <- function(Z_sl_raw, N_trials,
     }
 
     stopifnot(length(labels_for_w_optim) == N_trials)
-    Z_arr <- array(Z_sl_raw, dim = c(K_hrf_bases, N_trials, V_sl))
-
-    if (length(labels_for_w_optim) != N_trials) {
-      stop("length(labels_for_w_optim) must equal N_trials")
-    }
 
     fn_gr <- function(w) {
       A_tmp_vec <- drop(w %*% Zmat)
