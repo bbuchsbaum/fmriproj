@@ -12,7 +12,9 @@
 #'   \code{R}, \code{K_global}, and precomputed matrices \code{RtR} and
 #'   \code{tRQt}. When \code{lambda_global} is zero \code{K_global} is the
 #'   (pseudo-)inverse of \code{R} times \code{Qt}; otherwise ridge
-#'   regularization is applied.
+#'   regularization is applied. When \code{lambda_global} \code{>} 0, the
+#'   \code{RtR} component already has \code{lambda_global} added to its
+#'   diagonal.
 #' @export
 build_projector <- function(X_theta, lambda_global = 0, diagnostics = FALSE,
                            pivot = TRUE) {
