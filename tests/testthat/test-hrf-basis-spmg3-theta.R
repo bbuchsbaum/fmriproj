@@ -16,6 +16,39 @@ test_that("derivatives behave as expected for simple t", {
   t <- 0:4
   B <- hrf_basis_spmg3_theta(t = t)
 
+
+  canonical <- B[, 1]
+  deriv1 <- B[, 2]
+  deriv2 <- B[, 3]
+
+  # First derivative at a few points
+  expect_equal(
+    deriv1[1],
+    (canonical[2] - canonical[1]) / (t[2] - t[1])
+  )
+  expect_equal(
+    deriv1[3],
+    (canonical[4] - canonical[2]) / (t[4] - t[2])
+  )
+  expect_equal(
+    deriv1[5],
+    (canonical[5] - canonical[4]) / (t[5] - t[4])
+  )
+
+  # Second derivative at the same points
+  expect_equal(
+    deriv2[1],
+    (deriv1[2] - deriv1[1]) / (t[2] - t[1])
+  )
+  expect_equal(
+    deriv2[3],
+    (deriv1[4] - deriv1[2]) / (t[4] - t[2])
+  )
+  expect_equal(
+    deriv2[5],
+    (deriv1[5] - deriv1[4]) / (t[5] - t[4])
+  )
+
   p1 <- 6
   p2 <- 16
   d1 <- 1
@@ -23,6 +56,11 @@ test_that("derivatives behave as expected for simple t", {
   hrf <- stats::dgamma(t, shape = p1, rate = d1) -
     0.35 * stats::dgamma(t, shape = p2, rate = d2)
   if (max(hrf) != 0) hrf <- hrf / max(hrf)
+  deriv1 <- central_diff(hrf, t)
+  deriv2 <- central_diff(hrf, t, order = 2)
+
+  hrf_max <- max(hrf)
+  if (hrf_max != 0) hrf <- hrf / hrf_max
   n <- length(hrf)
   deriv1 <- numeric(n)
   deriv2 <- numeric(n)
@@ -46,4 +84,24 @@ test_that("derivatives behave as expected for simple t", {
   expected <- cbind(hrf, deriv1, deriv2)
 
   expect_equal(B, expected)
+
+})
+
+test_that("invalid theta arguments error", {
+  t <- 0:2
+  expect_error(hrf_basis_spmg3_theta(theta = "a", t = t),
+               "theta must be numeric")
+  expect_error(hrf_basis_spmg3_theta(theta = c(1, 2, 3), t = t),
+               "length 1 or 2")
+})
+
+test_that("invalid t arguments error", {
+  expect_error(hrf_basis_spmg3_theta(t = c(1, 1)),
+               "strictly increasing")
+  expect_error(hrf_basis_spmg3_theta(t = c(2, 1)),
+               "strictly increasing")
+  expect_error(hrf_basis_spmg3_theta(t = numeric(0)),
+               "at least one element")
+  expect_error(hrf_basis_spmg3_theta(t = "a"),
+               "numeric")
 })

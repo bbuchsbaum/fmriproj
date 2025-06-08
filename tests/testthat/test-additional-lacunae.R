@@ -109,6 +109,7 @@ test_that("collapse_beta pc falls back to rss on eigen failure", {
   expect_true(all(is.na(res$A_sl)))
 })
 
+
 # optimize_hrf_mvpa argument validation
 
 test_that("optimize_hrf_mvpa validates arguments", {
@@ -137,11 +138,17 @@ test_that("optimize_hrf_mvpa validates arguments", {
                       optim_method = "Nelder-Mead"),
     "Y must be a numeric matrix"
   )
+})
 
+test_that("optimize_hrf_mvpa validates optim_method", {
+  Y <- matrix(1, nrow = 2, ncol = 1)
+  em <- list(onsets = c(0L), n_time = 2L, basis_length = 1L)
+  basis_fun <- function(theta, t) matrix(theta[1], nrow = length(t), ncol = 1)
   expect_error(
     optimize_hrf_mvpa(theta_init = c(1),
                       Y = Y,
                       event_model = em,
+
                       inner_cv_fn = 5,
                       hrf_basis_func = basis_fun,
                       optim_method = "Nelder-Mead"),
@@ -167,6 +174,29 @@ test_that("optimize_hrf_mvpa validates arguments", {
                       hrf_basis_func = basis_fun,
                       optim_method = "Nelder-Mead"),
     "event_model missing required fields"
+###=======
+                      inner_cv_fn = sum,
+                      hrf_basis_func = basis_fun,
+                      optim_method = "bogus"),
+    "one of"
+  )
+})
+
+test_that("optimize_hrf_mvpa warns when bounds ignored", {
+  Y <- matrix(1, nrow = 2, ncol = 1)
+  em <- list(onsets = c(0L), n_time = 2L, basis_length = 1L)
+  basis_fun <- function(theta, t) matrix(theta[1], nrow = length(t), ncol = 1)
+  expect_warning(
+    optimize_hrf_mvpa(theta_init = c(1),
+                      Y = Y,
+                      event_model = em,
+                      inner_cv_fn = sum,
+                      hrf_basis_func = basis_fun,
+                      optim_method = "Nelder-Mead",
+                      lower = 0,
+                      upper = 1),
+    "ignored"
+##>>>>>>> main
   )
 })
 

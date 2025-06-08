@@ -26,7 +26,7 @@
 #' @param use_fd_grad Logical; compute gradient using finite differences.
 #'   An optional TMB-based implementation can be added, but there is no
 #'   requirement for TMB.
-#' @param use_tmb Deprecated. Use `use_fd_grad` instead.
+#' @param use_tmb `r lifecycle::badge('deprecated')` Use `use_fd_grad` instead.
 #' @param lower Lower bounds for optimization (for methods that support bounds).
 #' @param upper Upper bounds for optimization (for methods that support bounds).
 #' @param ... Additional arguments passed to `inner_cv_fn`.
@@ -56,9 +56,14 @@ optimize_hrf_mvpa <- function(theta_init,
   trace_env <- new.env(parent = emptyenv())
 
   if (!is.null(use_tmb)) {
-    warning("`use_tmb` is deprecated; use `use_fd_grad` instead.", call. = FALSE)
+    lifecycle::deprecate_warn(
+      "0.1.1",
+      "optimize_hrf_mvpa(use_tmb)",
+      "optimize_hrf_mvpa(use_fd_grad)"
+    )
     use_fd_grad <- use_tmb
   }
+
 
   if (!is.numeric(theta_init)) {
     stop("theta_init must be numeric")
@@ -85,11 +90,12 @@ optimize_hrf_mvpa <- function(theta_init,
   }
 
   trace_env$df <- data.frame()
+
   N_trials <- length(event_model$onsets)
   trace_env$rows <- list()
 
 
-  loss_fn_theta <- function(theta) {
+  loss_fn_theta <- function(theta, record = TRUE) {
     X_obj <- build_design_matrix(event_model,
                                  hrf_basis_func = hrf_basis_func,
                                  theta_params = theta,
@@ -106,7 +112,7 @@ optimize_hrf_mvpa <- function(theta_init,
       X_theta_for_EB_residuals = as.matrix(X_theta),
       diagnostics = FALSE
     )
-    K_hrf <- ncol(as.matrix(X_obj$hrf_info$basis))
+    K_hrf <- ncol(X_obj$hrf_info$basis)
     coll_res <- collapse_beta(
       proj_res$Z_sl_raw,
       N_trials,
@@ -122,7 +128,9 @@ optimize_hrf_mvpa <- function(theta_init,
       stop("`inner_cv_fn` must return a finite numeric scalar 'loss'.", call. = FALSE)
     }
 
-    if (isTRUE(diagnostics)) {
+
+    if (isTRUE(diagnostics) && record) {
+
       row <- c(loss = loss,
                setNames(as.numeric(theta),
                         paste0("theta", seq_along(theta))))
@@ -135,20 +143,39 @@ optimize_hrf_mvpa <- function(theta_init,
   if (use_fd_grad) {
     grad_fn <- function(th) {
       eps <- 1e-6
+      base_loss <- loss_fn_theta(th, record = FALSE)
       sapply(seq_along(th), function(i) {
         th_eps <- th
         th_eps[i] <- th_eps[i] + eps
-        (loss_fn_theta(th_eps) - loss_fn_theta(th)) / eps
+        (loss_fn_theta(th_eps, record = FALSE) -
+           loss_fn_theta(th, record = FALSE)) / eps
       })
     }
   }
 
-  optim_res <- stats::optim(par = theta_init,
-                            fn = loss_fn_theta,
-                            gr = grad_fn,
-                            method = optim_method,
-                            lower = lower,
-                            upper = upper)
+  valid_methods <-
+    c("Nelder-Mead", "BFGS", "CG", "L-BFGS-B", "SANN", "Brent")
+  if (!optim_method %in% valid_methods) {
+    stop(paste0("`optim_method` must be one of: ",
+                paste(valid_methods, collapse = ", ")), call. = FALSE)
+  }
+
+  bounds_finite <- any(is.finite(lower)) || any(is.finite(upper))
+  if (bounds_finite && !optim_method %in% c("L-BFGS-B", "Brent")) {
+    warning(paste0("Bounds specified but ignored for method '",
+                   optim_method, "'."), call. = FALSE)
+  }
+
+  optim_args <- list(par = theta_init,
+                     fn = loss_fn_theta,
+                     gr = grad_fn,
+                     method = optim_method)
+  if (bounds_finite && optim_method %in% c("L-BFGS-B", "Brent")) {
+    optim_args$lower <- lower
+    optim_args$upper <- upper
+  }
+
+  optim_res <- do.call(stats::optim, optim_args)
 
   diag_list <- NULL
   if (diagnostics) {

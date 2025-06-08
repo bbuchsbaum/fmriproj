@@ -11,8 +11,12 @@
 #'
 #' @param Y Time-series data matrix (time x voxels)
 #' @param event_model Event model from fmrireg or a list with onsets
-#' @param lambda_method Method for adaptive regularization: "none", "EB", or "CV"
+#' @param lambda_method Method for adaptive regularization. Options are
+#'   "none", "EB", or "LOOcv_local". The alias "CV" is also accepted for
+#'   backward compatibility.
 #' @param collapse_method Method for combining HRF bases: "rss", "pc", or "optim"
+#' @param lambda_global Global ridge penalty passed to
+#'   \code{build_projector()} and used as a floor for adaptive methods.
 #' @param hrf_basis Optional custom HRF basis matrix
 #' @param verbose Print progress messages
 #' @return Matrix of trial patterns (trials x voxels)
@@ -27,14 +31,18 @@
 #'                                  lambda_method = "EB")
 project_trials <- function(Y,
                           event_model,
-                          lambda_method = c("EB", "none", "CV"),
+                          lambda_method = c("EB", "none", "LOOcv_local"),
                           collapse_method = c("rss", "pc", "optim"),
+                          lambda_global = 0.1,
                           hrf_basis = NULL,
                           verbose = TRUE) {
 
   .Deprecated("run_regional")
   
-  lambda_method <- match.arg(lambda_method)
+  lambda_method <- match.arg(lambda_method,
+                             c("EB", "none", "LOOcv_local", "CV"))
+  if (lambda_method == "CV")
+    lambda_method <- "LOOcv_local"
   collapse_method <- match.arg(collapse_method)
   
   if (verbose) message("Building design matrix...")
@@ -48,10 +56,17 @@ project_trials <- function(Y,
   if (verbose) message("Creating projector...")
   
   # Step 2: Projector
-  lambda_global <- switch(lambda_method,
-                         none = 0,
-                         EB = 0.1,
-                         CV = 0.1)
+
+  if (missing(lambda_global)) {
+    lambda_global <- switch(lambda_method,
+                           none = 0,
+                           0.1)
+  }
+  if (!is.numeric(lambda_global) || length(lambda_global) != 1 ||
+      is.na(lambda_global) || lambda_global < 0) {
+    stop("lambda_global must be a single non-negative numeric value")
+  }
+
   
   projector <- build_projector(
     X_theta = design$X,
@@ -61,7 +76,7 @@ project_trials <- function(Y,
   if (verbose) message("Projecting data...")
   
   # Step 3: Project
-  X_dense <- if (lambda_method %in% c("EB", "CV")) {
+  X_dense <- if (lambda_method %in% c("EB", "LOOcv_local")) {
     as.matrix(design$X)
   } else NULL
   
@@ -190,9 +205,10 @@ mvpa_searchlight <- function(Y,
 #' @param Y Time-series data
 #' @param event_model Event model
 #' @param TR Repetition time in seconds
+#' @param quiet Logical; suppress messages if `TRUE`.
 #' @return Invisible TRUE if all checks pass, otherwise errors/warnings
 #' @export
-check_data_compatibility <- function(Y, event_model, TR = NULL) {
+check_data_compatibility <- function(Y, event_model, TR = NULL, quiet = FALSE) {
   
   # Check dimensions
   if (!is.matrix(Y) && !inherits(Y, "Matrix")) {
@@ -202,9 +218,11 @@ check_data_compatibility <- function(Y, event_model, TR = NULL) {
   n_time <- nrow(Y)
   n_voxels <- ncol(Y)
   
-  cat("Data dimensions:\n")
-  cat("  Time points:", n_time, "\n")
-  cat("  Voxels:", n_voxels, "\n")
+  if (!quiet) {
+    message("Data dimensions:")
+    message("  Time points: ", n_time)
+    message("  Voxels: ", n_voxels)
+  }
   
   # Check event model
   if (!is.list(event_model)) {
@@ -218,8 +236,10 @@ check_data_compatibility <- function(Y, event_model, TR = NULL) {
   }
   
   n_trials <- length(event_model$onsets)
-  cat("\nEvent model:\n")
-  cat("  Trials:", n_trials, "\n")
+  if (!quiet) {
+    message("\nEvent model:")
+    message("  Trials: ", n_trials)
+  }
   
   # Check timing
   if (!is.null(TR)) {
@@ -235,7 +255,7 @@ check_data_compatibility <- function(Y, event_model, TR = NULL) {
     trial_spacing <- diff(sort(event_model$onsets))
     min_spacing <- min(trial_spacing)
     
-    cat("  Min trial spacing:", round(min_spacing, 1), "s\n")
+    if (!quiet) message("  Min trial spacing: ", round(min_spacing, 1), "s")
     
     if (min_spacing < 2 * TR) {
       warning("Trials may be too close together for reliable separation")
@@ -245,8 +265,10 @@ check_data_compatibility <- function(Y, event_model, TR = NULL) {
   # Check conditions if provided
   if (!is.null(event_model$conditions)) {
     n_conditions <- length(unique(event_model$conditions))
-    cat("  Conditions:", n_conditions, "\n")
-    print(table(event_model$conditions))
+    if (!quiet) {
+      message("  Conditions: ", n_conditions)
+      print(table(event_model$conditions))
+    }
   }
   
   # Check for common issues
@@ -259,20 +281,24 @@ check_data_compatibility <- function(Y, event_model, TR = NULL) {
   }
   
   # Test basic projection
-  cat("\nTesting projection pipeline...")
+  if (!quiet) message("\nTesting projection pipeline...")
   
   test_result <- tryCatch({
     small_test <- project_trials(
-      Y[, 1:min(100, n_voxels)], 
+      Y[, 1:min(100, n_voxels)],
       event_model,
       verbose = FALSE
     )
-    cat(" SUCCESS\n")
-    cat("  Output dimensions:", dim(test_result), "\n")
+    if (!quiet) {
+      message(" SUCCESS")
+      message("  Output dimensions: ", paste(dim(test_result), collapse = " "))
+    }
     TRUE
   }, error = function(e) {
-    cat(" FAILED\n")
-    cat("  Error:", e$message, "\n")
+    if (!quiet) {
+      message(" FAILED")
+      message("  Error: ", e$message)
+    }
     FALSE
   })
   
@@ -285,7 +311,9 @@ check_data_compatibility <- function(Y, event_model, TR = NULL) {
 #' Visualize diagnostic information for a specific searchlight to understand
 #' the projection process.
 #'
-#' @param results Results object with diagnostics
+#' @param results Results object containing a `diagnostics` list with one
+#'   entry per searchlight. If a vector `voxel_indices` is present it is used
+#'   to map voxels to diagnostic entries.
 #' @param voxel Central voxel index
 #' @param plot_type Type of plot: "weights", "lambda", "patterns"
 #' @export
