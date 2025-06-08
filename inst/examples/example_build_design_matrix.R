@@ -49,7 +49,8 @@ simple_hrf_func <- function(theta_params, time_vector) {
   # theta_params[1] controls the peak time
   peak_time <- theta_params[1]
   hrf <- dnorm(time_vector, mean = peak_time, sd = 1)
-  hrf <- hrf / max(hrf)  # Normalize
+  hrf_max <- max(hrf)
+  hrf <- hrf / hrf_max  # Normalize
   
   # Return as matrix (length x 1 basis)
   matrix(hrf, ncol = 1)

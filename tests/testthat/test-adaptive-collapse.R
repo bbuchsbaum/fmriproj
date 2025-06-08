@@ -179,3 +179,31 @@ test_that("adaptive_ridge_projector skips EB when T_obs <= m", {
   expect_true(is.na(res$diag_data$s_b_sq))
 })
 
+test_that("collapse_beta rss warns and returns NA on NA input", {
+  N_trials <- 2
+  K <- 2
+  Z_sl_raw <- matrix(c(1, NA, 3, 4), nrow = N_trials * K)
+  expect_warning(res <- collapse_beta(Z_sl_raw, N_trials, K,
+                                      method = "rss", diagnostics = TRUE),
+                 "Z_sl_raw contains")
+  expect_true(all(is.na(res$A_sl)))
+  expect_equal(res$w_sl, rep(1 / sqrt(K), K))
+  expect_false(is.null(res$diag_data))
+})
+
+test_that("collapse_beta optim warns and returns NA on NA input", {
+  N_trials <- 2
+  K <- 2
+  Z_sl_raw <- matrix(c(1, NA, 3, 4), nrow = N_trials * K)
+  labels <- c(1, 0)
+  clf <- function(A, y) list(loss = 0, grad = matrix(0, nrow = N_trials, ncol = ncol(A)))
+  expect_warning(res <- collapse_beta(Z_sl_raw, N_trials, K,
+                                      method = "optim", diagnostics = TRUE,
+                                      labels_for_w_optim = labels,
+                                      classifier_for_w_optim = clf),
+                 "Z_sl_raw contains")
+  expect_true(all(is.na(res$A_sl)))
+  expect_equal(res$w_sl, rep(1 / sqrt(K), K))
+  expect_false(is.null(res$diag_data))
+})
+

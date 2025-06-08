@@ -246,7 +246,8 @@ test_that("HRF optimization improves MVPA performance on appropriate problems", 
     # True HRF shape
     t_hrf <- seq(0, 20, by = TR)
     hrf <- dgamma(t_hrf, shape = peak_time, rate = 1)
-    hrf <- hrf / max(hrf)
+    hrf_max <- max(hrf)
+    hrf <- hrf / hrf_max
     
     # Generate signal
     for (trial in 1:n_trials) {
@@ -276,10 +277,11 @@ test_that("HRF optimization improves MVPA performance on appropriate problems", 
   # Define flexible HRF basis function  
   flexible_hrf <- function(theta_params, time_vector) {
     peak <- theta_params[1]
-    
+
     # Main function
     hrf_main <- dgamma(time_vector, shape = peak, rate = 1)
-    if (max(hrf_main) > 0) hrf_main <- hrf_main / max(hrf_main)
+    hrf_max <- max(hrf_main)
+    if (hrf_max > 0) hrf_main <- hrf_main / hrf_max
     
     # Derivative
     hrf_deriv <- c(0, diff(hrf_main))

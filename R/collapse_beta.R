@@ -4,6 +4,7 @@
 #' feature patterns. Supports the default root-sum-square (`method = "rss"`),
 #' an SNR-optimal principal component (`method = "pc"`), and optional
 #' supervised optimization of the collapse weights (`method = "optim"`).
+#' The resulting weights `w_sl` are normalized to unit length.
 #'
 #' @param Z_sl_raw Matrix of raw projected coefficients with
 #'   `(N_trials * K_hrf_bases)` rows and `V_sl` columns.
@@ -16,10 +17,10 @@
 #' @param classifier_for_w_optim Function returning loss and gradient given
 #'   `A_sl` and labels when `method = "optim"`.
 #' @param optim_w_params List of controls passed to `stats::optim` when
-#'   `method = "optim"`.
+#'   `method = "optim"`. The `maxit` element defaults to 5.
 #' @return A list with elements:
 #'   \item{A_sl}{Collapsed trial pattern matrix `N_trials x V_sl`.}
-#'   \item{w_sl}{Collapse weights used for combining HRF bases.}
+#'   \item{w_sl}{Normalized collapse weights (unit length) used for combining HRF bases.}
 #'   \item{diag_data}{Optional diagnostics.}
 #' @export
 collapse_beta <- function(Z_sl_raw, N_trials,
@@ -34,6 +35,19 @@ collapse_beta <- function(Z_sl_raw, N_trials,
   stopifnot(N_trials > 0,
             K_hrf_bases > 0,
             nrow(Z_sl_raw) == N_trials * K_hrf_bases)
+
+  if (anyNA(Z_sl_raw)) {
+    warning("Z_sl_raw contains missing values")
+    V_sl <- ncol(Z_sl_raw)
+    A_vec <- rep(NA_real_, N_trials * V_sl)
+    dim(A_vec) <- c(N_trials, V_sl)
+    w_sl <- rep(1 / sqrt(K_hrf_bases), K_hrf_bases)
+    diag_list <- NULL
+    if (diagnostics) {
+      diag_list <- cap_diagnostics(list(method = method, w_sl = w_sl))
+    }
+    return(list(A_sl = A_vec, w_sl = w_sl, diag_data = diag_list))
+  }
 
 
   V_sl <- ncol(Z_sl_raw)
@@ -72,11 +86,6 @@ collapse_beta <- function(Z_sl_raw, N_trials,
     }
 
     stopifnot(length(labels_for_w_optim) == N_trials)
-    Z_arr <- array(Z_sl_raw, dim = c(K_hrf_bases, N_trials, V_sl))
-
-    if (length(labels_for_w_optim) != N_trials) {
-      stop("length(labels_for_w_optim) must equal N_trials")
-    }
 
     fn_gr <- function(w) {
       A_tmp_vec <- drop(w %*% Zmat)

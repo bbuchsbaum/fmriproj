@@ -44,7 +44,8 @@ hrf_basis_spmg3_theta <- function(theta_params, time_vector) {
   # theta_params[1] = time to peak
   peak <- theta_params[1]
   hrf <- dnorm(time_vector, mean = peak, sd = 1.5)
-  matrix(hrf / max(hrf), ncol = 1)
+  hrf_max <- max(hrf)
+  matrix(hrf / hrf_max, ncol = 1)
 }
 
 # Inner CV function: simple classification accuracy
@@ -108,7 +109,8 @@ hrf_two_param <- function(theta_params, time_vector) {
   
   # Double gamma HRF
   hrf_main <- dgamma(time_vector, shape = peak/width, scale = width)
-  hrf_main <- hrf_main / max(hrf_main)
+  hrf_max <- max(hrf_main)
+  hrf_main <- hrf_main / hrf_max
   
   # Derivative
   hrf_deriv <- c(0, diff(hrf_main))

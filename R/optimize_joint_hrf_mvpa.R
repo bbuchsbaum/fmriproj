@@ -60,7 +60,6 @@ optimize_hrf_mvpa <- function(theta_init,
     use_fd_grad <- use_tmb
   }
 
-  trace_env$df <- data.frame()
   N_trials <- length(event_model$onsets)
   trace_env$rows <- list()
 
@@ -98,7 +97,9 @@ optimize_hrf_mvpa <- function(theta_init,
       stop("`inner_cv_fn` must return a finite numeric scalar 'loss'.", call. = FALSE)
     }
 
+
     if (isTRUE(diagnostics) && record) {
+
       row <- c(loss = loss,
                setNames(as.numeric(theta),
                         paste0("theta", seq_along(theta))))
@@ -111,6 +112,7 @@ optimize_hrf_mvpa <- function(theta_init,
   if (use_fd_grad) {
     grad_fn <- function(th) {
       eps <- 1e-6
+      base_loss <- loss_fn_theta(th, record = FALSE)
       sapply(seq_along(th), function(i) {
         th_eps <- th
         th_eps[i] <- th_eps[i] + eps

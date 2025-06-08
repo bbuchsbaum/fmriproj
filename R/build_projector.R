@@ -12,12 +12,17 @@
 #'   \code{R}, \code{K_global}, and precomputed matrices \code{RtR} and
 #'   \code{tRQt}. When \code{lambda_global} is zero \code{K_global} is the
 #'   (pseudo-)inverse of \code{R} times \code{Qt}; otherwise ridge
-#'   regularization is applied.
+#'   regularization is applied. When \code{lambda_global} \code{>} 0, the
+#'   \code{RtR} component already has \code{lambda_global} added to its
+#'   diagonal.
 #' @export
 build_projector <- function(X_theta, lambda_global = 0, diagnostics = FALSE,
                            pivot = TRUE) {
   if (!inherits(X_theta, c("matrix", "Matrix"))) {
     stop("X_theta must be a matrix or Matrix")
+  }
+  if (anyNA(X_theta)) {
+    stop("X_theta must not contain missing values")
   }
   if (!is.numeric(lambda_global) || length(lambda_global) != 1 ||
       lambda_global < 0) {
@@ -39,15 +44,13 @@ build_projector <- function(X_theta, lambda_global = 0, diagnostics = FALSE,
   }
 
   if (lambda_global > 0) {
-    RtR <- crossprod(R)
     diag(RtR) <- diag(RtR) + lambda_global
-    tRQt <- t(R) %*% Qt
     cho <- chol(RtR)
     K_global <- backsolve(cho, backsolve(cho, tRQt, transpose = TRUE))
 
   } else {
     K_global <- tryCatch(
-      solve(R, Qt),
+      backsolve(R, Qt, upper = TRUE),
       error = function(e) MASS::ginv(R) %*% Qt
     )
   }
