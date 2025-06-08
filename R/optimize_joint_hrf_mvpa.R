@@ -60,7 +60,6 @@ optimize_hrf_mvpa <- function(theta_init,
     use_fd_grad <- use_tmb
   }
 
-  trace_env$df <- data.frame()
   N_trials <- length(event_model$onsets)
   trace_env$rows <- list()
 
