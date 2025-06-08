@@ -64,6 +64,33 @@ optimize_hrf_mvpa <- function(theta_init,
     use_fd_grad <- use_tmb
   }
 
+
+  if (!is.numeric(theta_init)) {
+    stop("theta_init must be numeric")
+  }
+  if (!is.matrix(Y) && !inherits(Y, "Matrix")) {
+    stop("Y must be a numeric matrix")
+  }
+  if (is.matrix(Y) && !is.numeric(Y)) {
+    stop("Y must be a numeric matrix")
+  }
+  if (!is.function(inner_cv_fn)) {
+    stop("inner_cv_fn must be a function")
+  }
+  if (!is.function(hrf_basis_func)) {
+    stop("hrf_basis_func must be a function")
+  }
+  if (!is.list(event_model)) {
+    stop("event_model must be a list with required fields 'onsets' and 'n_time'")
+  }
+  required_fields <- c("onsets", "n_time")
+  missing_fields <- setdiff(required_fields, names(event_model))
+  if (length(missing_fields) > 0) {
+    stop("event_model missing required fields: ", paste(missing_fields, collapse = ", "))
+  }
+
+  trace_env$df <- data.frame()
+
   N_trials <- length(event_model$onsets)
   trace_env$rows <- list()
 
