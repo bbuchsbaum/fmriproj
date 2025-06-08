@@ -190,9 +190,10 @@ mvpa_searchlight <- function(Y,
 #' @param Y Time-series data
 #' @param event_model Event model
 #' @param TR Repetition time in seconds
+#' @param quiet Logical; suppress messages if `TRUE`.
 #' @return Invisible TRUE if all checks pass, otherwise errors/warnings
 #' @export
-check_data_compatibility <- function(Y, event_model, TR = NULL) {
+check_data_compatibility <- function(Y, event_model, TR = NULL, quiet = FALSE) {
   
   # Check dimensions
   if (!is.matrix(Y) && !inherits(Y, "Matrix")) {
@@ -202,9 +203,11 @@ check_data_compatibility <- function(Y, event_model, TR = NULL) {
   n_time <- nrow(Y)
   n_voxels <- ncol(Y)
   
-  cat("Data dimensions:\n")
-  cat("  Time points:", n_time, "\n")
-  cat("  Voxels:", n_voxels, "\n")
+  if (!quiet) {
+    message("Data dimensions:")
+    message("  Time points: ", n_time)
+    message("  Voxels: ", n_voxels)
+  }
   
   # Check event model
   if (!is.list(event_model)) {
@@ -218,8 +221,10 @@ check_data_compatibility <- function(Y, event_model, TR = NULL) {
   }
   
   n_trials <- length(event_model$onsets)
-  cat("\nEvent model:\n")
-  cat("  Trials:", n_trials, "\n")
+  if (!quiet) {
+    message("\nEvent model:")
+    message("  Trials: ", n_trials)
+  }
   
   # Check timing
   if (!is.null(TR)) {
@@ -235,7 +240,7 @@ check_data_compatibility <- function(Y, event_model, TR = NULL) {
     trial_spacing <- diff(sort(event_model$onsets))
     min_spacing <- min(trial_spacing)
     
-    cat("  Min trial spacing:", round(min_spacing, 1), "s\n")
+    if (!quiet) message("  Min trial spacing: ", round(min_spacing, 1), "s")
     
     if (min_spacing < 2 * TR) {
       warning("Trials may be too close together for reliable separation")
@@ -245,8 +250,10 @@ check_data_compatibility <- function(Y, event_model, TR = NULL) {
   # Check conditions if provided
   if (!is.null(event_model$conditions)) {
     n_conditions <- length(unique(event_model$conditions))
-    cat("  Conditions:", n_conditions, "\n")
-    print(table(event_model$conditions))
+    if (!quiet) {
+      message("  Conditions: ", n_conditions)
+      print(table(event_model$conditions))
+    }
   }
   
   # Check for common issues
@@ -259,20 +266,24 @@ check_data_compatibility <- function(Y, event_model, TR = NULL) {
   }
   
   # Test basic projection
-  cat("\nTesting projection pipeline...")
+  if (!quiet) message("\nTesting projection pipeline...")
   
   test_result <- tryCatch({
     small_test <- project_trials(
-      Y[, 1:min(100, n_voxels)], 
+      Y[, 1:min(100, n_voxels)],
       event_model,
       verbose = FALSE
     )
-    cat(" SUCCESS\n")
-    cat("  Output dimensions:", dim(test_result), "\n")
+    if (!quiet) {
+      message(" SUCCESS")
+      message("  Output dimensions: ", paste(dim(test_result), collapse = " "))
+    }
     TRUE
   }, error = function(e) {
-    cat(" FAILED\n")
-    cat("  Error:", e$message, "\n")
+    if (!quiet) {
+      message(" FAILED")
+      message("  Error: ", e$message)
+    }
     FALSE
   })
   
