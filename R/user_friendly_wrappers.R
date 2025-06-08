@@ -285,7 +285,9 @@ check_data_compatibility <- function(Y, event_model, TR = NULL) {
 #' Visualize diagnostic information for a specific searchlight to understand
 #' the projection process.
 #'
-#' @param results Results object with diagnostics
+#' @param results Results object containing a `diagnostics` list with one
+#'   entry per searchlight. If a vector `voxel_indices` is present it is used
+#'   to map voxels to diagnostic entries.
 #' @param voxel Central voxel index
 #' @param plot_type Type of plot: "weights", "lambda", "patterns"
 #' @export
