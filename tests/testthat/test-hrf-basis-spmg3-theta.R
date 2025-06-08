@@ -22,7 +22,8 @@ test_that("derivatives behave as expected for simple t", {
   d2 <- 1
   hrf <- stats::dgamma(t, shape = p1, rate = d1) -
     0.35 * stats::dgamma(t, shape = p2, rate = d2)
-  if (max(hrf) != 0) hrf <- hrf / max(hrf)
+  hrf_max <- max(hrf)
+  if (hrf_max != 0) hrf <- hrf / hrf_max
   n <- length(hrf)
   deriv1 <- numeric(n)
   deriv2 <- numeric(n)
