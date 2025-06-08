@@ -30,6 +30,7 @@ export(project_trials)
 export(mvpa_searchlight)
 export(check_data_compatibility)
 export(plot_searchlight_diagnostics)
+export(get_searchlight_index)
 
 # rMVPA compatibility functions
 export(make_rmvpa_searchlight_fun)

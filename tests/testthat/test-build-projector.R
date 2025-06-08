@@ -15,7 +15,7 @@ test_that("build_projector sparse QR works", {
   }
   expect_equal(proj$Qt, Qt_exp)
   expect_equal(proj$R, R_exp)
-  K_exp <- solve(R_exp, Qt_exp)
+  K_exp <- backsolve(R_exp, Qt_exp, upper = TRUE)
   expect_equal(proj$K_global, K_exp)
   expect_equal(as.matrix(proj$RtR), crossprod(R_exp))
   expect_equal(as.matrix(proj$tRQt), t(R_exp) %*% Qt_exp)
@@ -68,7 +68,7 @@ test_that("lambda_global 0 returns OLS projector", {
   if (!is.null(pivot_idx) && any(pivot_idx != seq_len(ncol(R)))) {
     R <- R[, order(pivot_idx), drop = FALSE]
   }
-  K_exp <- solve(R, Qt)
+  K_exp <- backsolve(R, Qt, upper = TRUE)
   expect_equal(proj$K_global, K_exp)
 })
 
@@ -130,4 +130,9 @@ test_that("build_projector validates inputs", {
   expect_error(build_projector(X, lambda_global = -1),
                "lambda_global must be")
 
+})
+
+test_that("build_projector errors on NA values", {
+  X <- matrix(c(1, NA, 0, 1), nrow = 2)
+  expect_error(build_projector(X), "X_theta must not contain missing values")
 })
