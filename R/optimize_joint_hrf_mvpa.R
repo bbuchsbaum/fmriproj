@@ -81,7 +81,7 @@ optimize_hrf_mvpa <- function(theta_init,
       X_theta_for_EB_residuals = as.matrix(X_theta),
       diagnostics = FALSE
     )
-    K_hrf <- ncol(as.matrix(X_obj$hrf_info$basis))
+    K_hrf <- ncol(X_obj$hrf_info$basis)
     coll_res <- collapse_beta(
       proj_res$Z_sl_raw,
       N_trials,
