@@ -13,6 +13,8 @@
 #' @param event_model Event model from fmrireg or a list with onsets
 #' @param lambda_method Method for adaptive regularization: "none", "EB", or "CV"
 #' @param collapse_method Method for combining HRF bases: "rss", "pc", or "optim"
+#' @param lambda_global Global ridge penalty passed to
+#'   \code{build_projector()} and used as a floor for adaptive methods.
 #' @param hrf_basis Optional custom HRF basis matrix
 #' @param verbose Print progress messages
 #' @return Matrix of trial patterns (trials x voxels)
@@ -29,6 +31,7 @@ project_trials <- function(Y,
                           event_model,
                           lambda_method = c("EB", "none", "CV"),
                           collapse_method = c("rss", "pc", "optim"),
+                          lambda_global = 0.1,
                           hrf_basis = NULL,
                           verbose = TRUE) {
 
@@ -48,10 +51,15 @@ project_trials <- function(Y,
   if (verbose) message("Creating projector...")
   
   # Step 2: Projector
-  lambda_global <- switch(lambda_method,
-                         none = 0,
-                         EB = 0.1,
-                         CV = 0.1)
+  if (missing(lambda_global)) {
+    lambda_global <- switch(lambda_method,
+                           none = 0,
+                           0.1)
+  }
+  if (!is.numeric(lambda_global) || length(lambda_global) != 1 ||
+      is.na(lambda_global) || lambda_global < 0) {
+    stop("lambda_global must be a single non-negative numeric value")
+  }
   
   projector <- build_projector(
     X_theta = design$X,
