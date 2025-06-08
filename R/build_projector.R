@@ -47,7 +47,7 @@ build_projector <- function(X_theta, lambda_global = 0, diagnostics = FALSE,
 
   } else {
     K_global <- tryCatch(
-      solve(R, Qt),
+      backsolve(R, Qt, upper = TRUE),
       error = function(e) MASS::ginv(R) %*% Qt
     )
   }
