@@ -47,3 +47,22 @@ test_that("derivatives behave as expected for simple t", {
 
   expect_equal(B, expected)
 })
+
+test_that("invalid theta arguments error", {
+  t <- 0:2
+  expect_error(hrf_basis_spmg3_theta(theta = "a", t = t),
+               "theta must be numeric")
+  expect_error(hrf_basis_spmg3_theta(theta = c(1, 2, 3), t = t),
+               "length 1 or 2")
+})
+
+test_that("invalid t arguments error", {
+  expect_error(hrf_basis_spmg3_theta(t = c(1, 1)),
+               "strictly increasing")
+  expect_error(hrf_basis_spmg3_theta(t = c(2, 1)),
+               "strictly increasing")
+  expect_error(hrf_basis_spmg3_theta(t = numeric(0)),
+               "at least one element")
+  expect_error(hrf_basis_spmg3_theta(t = "a"),
+               "numeric")
+})
