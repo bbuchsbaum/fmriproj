@@ -243,7 +243,8 @@ flexible_hrf <- function(theta, time_points) {
   
   # Generate double-gamma HRF
   hrf <- dgamma(time_points, shape = peak_time/width, scale = width)
-  hrf <- hrf / max(hrf)
+  hrf_max <- max(hrf)
+  hrf <- hrf / hrf_max
   
   # Add derivative
   hrf_deriv <- c(0, diff(hrf))

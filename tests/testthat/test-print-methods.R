@@ -5,7 +5,7 @@ test_that("print.fr_design_matrix outputs summary", {
   basis <- matrix(c(1,0,0,
                     0,1,0), nrow = 3, byrow = FALSE)
   dm <- build_design_matrix(em, hrf_basis_matrix = basis)
-  expect_snapshot_output(print(dm))
+  expect_snapshot_output(cat(print(dm, quiet = TRUE), sep = "\n"))
 })
 
 test_that("print.fr_projector outputs summary", {
@@ -14,5 +14,5 @@ test_that("print.fr_projector outputs summary", {
                     0,1,0), nrow = 3, byrow = FALSE)
   dm <- build_design_matrix(em, hrf_basis_matrix = basis)
   proj <- build_projector(dm$X)
-  expect_snapshot_output(print(proj))
+  expect_snapshot_output(cat(print(proj, quiet = TRUE), sep = "\n"))
 })

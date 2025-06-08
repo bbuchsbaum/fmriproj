@@ -29,3 +29,10 @@ test_that("check_data_compatibility validates Y input and timing", {
     "Trials may be too close"
   )
 })
+
+test_that("quiet suppresses messages", {
+  Y <- matrix(0, nrow = 4, ncol = 2)
+  em <- list(onsets = c(0, 1))
+  expect_message(check_data_compatibility(Y, em, quiet = FALSE), "Data dimensions")
+  expect_message(check_data_compatibility(Y, em, quiet = TRUE), regexp = NA)
+})
