@@ -45,7 +45,8 @@ Suggests:
     pkgdown
 Remotes:
     bbuchsbaum/fmrireg,
-    bbuchsbaum/rMVPA
+    bbuchsbaum/rMVPA,
+    bbuchsbaum/fmridataset
 VignetteBuilder: knitr
 URL: https://github.com/bbuchsbaum/fmriproj
 BugReports: https://github.com/bbuchsbaum/fmriproj/issues

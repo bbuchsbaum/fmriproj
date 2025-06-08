@@ -21,13 +21,18 @@ pattern analyses directly from fMRI time-series data. The high level
 functions `run_searchlight()` and `run_regional()` wrap the full
 projection pipeline and automatically create all required `rMVPA` objects.
 
-We assume you have already installed **fmriproj**, **fmrireg** and
-**rMVPA** from GitHub.
+The refactored interface uses `fmridataset` objects to bundle time-series data,
+masks, event tables, and sampling frames together, providing a clean and
+consistent API for MVPA analyses.
+
+We assume you have already installed **fmriproj**, **fmrireg**, **rMVPA**,
+and **fmridataset** from GitHub.
 
 ```{r eval=FALSE}
 # Install packages
 remotes::install_github("bbuchsbaum/fmrireg")
 remotes::install_github("bbuchsbaum/rMVPA")
+remotes::install_github("bbuchsbaum/fmridataset")
 remotes::install_github("bbuchsbaum/fmriproj")
 ```
 
@@ -35,31 +40,56 @@ remotes::install_github("bbuchsbaum/fmriproj")
 library(fmriproj)
 library(fmrireg)
 library(rMVPA)
+library(fmridataset)
+```
+
+## Creating an fmridataset
+
+The first step is to create an `fmridataset` object that bundles your time-series
+data, brain mask, event table, and sampling frame:
+
+```{r create-dataset, eval=FALSE}
+# Your time-series data: time x voxels matrix
+Y <- matrix(rnorm(10000), nrow = 200)
+
+# Brain mask: logical vector or matrix
+brain_mask <- rep(TRUE, 50)
+
+# Event table with trial information
+events <- data.frame(
+  onset = seq(10, 180, by = 20),
+  condition = rep(c("A", "B"), each = 5),
+  run = rep(c(1, 2), each = 5)
+)
+
+# Sampling frame describing data structure
+sampling_frame <- data.frame(
+  block = c(1, 2),
+  blocklens = c(100, 100)  # 100 time points per run
+)
+
+# Create fmridataset
+fmri_dset <- fmridataset::matrix_dataset(
+  Y,
+  mask = brain_mask,
+  event_table = events,
+  sampling_frame = sampling_frame
+)
 ```
 
 ## Basic Searchlight Example
 
-Starting from a time-series matrix `Y` (time \* voxels) and an event
-model describing your trials, a whole-brain searchlight analysis can be
-run in a single call:
+With an `fmridataset` object, running a whole-brain searchlight analysis
+requires specifying formulas to select the relevant columns from the event table:
 
 ```{r searchlight-simple, eval=FALSE}
-# Y           : time x voxels matrix
-# events      : data frame with onsets and conditions
-# brain_mask  : logical vector or matrix
-
-event_model <- fmrireg::event_model(
-  onsets     = events$onset,
-  conditions = events$condition,
-  blocks     = events$run
-)
-
+# Run searchlight analysis
 sl_result <- run_searchlight(
-  Y            = Y,
-  event_model  = event_model,
-  mask         = brain_mask,
-  radius       = 3,
-  classifier   = "sda_notune"
+  fmri_dset,
+  radius = 3,
+  y_formula = ~ condition,     # Select 'condition' as labels
+  block_formula = ~ run,       # Select 'run' for cross-validation blocks
+  classifier = "sda_notune"
 )
 ```
 
@@ -68,15 +98,19 @@ accuracy maps and optional diagnostics.
 
 ## Running a Regional Analysis
 
-For a single region of interest the `run_regional()` function mirrors
-`run_searchlight()`:
+For a single region of interest, the `run_regional()` function works similarly
+but requires a region mask:
 
 ```{r regional-simple, eval=FALSE}
+# Define region of interest (NeuroVol or logical mask)
+roi_mask <- brain_mask  # Same as brain mask for this example
+
 roi_result <- run_regional(
-  Y            = Y,
-  event_model  = event_model,
-  region_mask  = roi_mask,
-  classifier   = "sda_notune"
+  fmri_dset,
+  region_mask = roi_mask,
+  y_formula = ~ condition,
+  block_formula = ~ run,
+  classifier = "sda_notune"
 )
 ```
 
@@ -86,51 +120,141 @@ Both high level functions accept a `projection_opts` list to control
 regularisation and HRF collapse methods:
 
 ```{r opts-example, eval=FALSE}
+# Custom projection options
 opts <- list(
   lambda_adaptive_method = "CV",
-  collapse_method        = "pc",
-  lambda_global          = 0.2
+  collapse_method = "pc",
+  lambda_global = 0.2
 )
 
 sl_cv <- run_searchlight(
-  Y, event_model, mask = brain_mask,
-  projection_opts = opts
+  fmri_dset,
+  radius = 3,
+  y_formula = ~ condition,
+  block_formula = ~ run,
+  projection_opts = opts,
+  classifier = "sda_notune"
 )
 ```
 
-## Progressive Projection as Feature Selection
+## Working with Complex Event Tables
 
-`rMVPA` feature selectors can be combined with the projection framework.
-The helper `pp_feature_selector()` attaches a progressive projection step
-before classification:
+The formula-based design allows for flexible selection of labels and blocks
+from complex event tables:
+
+```{r complex-events, eval=FALSE}
+# Event table with multiple factors
+complex_events <- data.frame(
+  onset = seq(10, 180, by = 10),
+  task = rep(c("memory", "attention"), 9),
+  difficulty = rep(c("easy", "hard"), each = 9),
+  session = rep(1:3, each = 6),
+  run = rep(1:2, 9)
+)
+
+# Create dataset with complex event table
+complex_dset <- fmridataset::matrix_dataset(
+  Y,
+  mask = brain_mask,
+  event_table = complex_events,
+  sampling_frame = sampling_frame
+)
+
+# Use interaction terms or specific columns
+sl_result <- run_searchlight(
+  complex_dset,
+  y_formula = ~ task,           # Main effect of task
+  block_formula = ~ session,    # Cross-validate across sessions
+  classifier = "sda_notune"
+)
+
+# Or use interaction of factors
+sl_interaction <- run_searchlight(
+  complex_dset,
+  y_formula = ~ task:difficulty,  # Task × difficulty interaction
+  block_formula = ~ run,
+  classifier = "sda_notune"
+)
+```
+
+## Progressive Projection Integration
+
+The projection framework can be combined with rMVPA's feature selection
+mechanisms. However, this requires manual construction of the model components:
 
 ```{r pp-example, eval=FALSE}
-model <- rMVPA::mvpa_model(
-  model   = rMVPA::load_model("sda_notune"),
-  dataset = rMVPA::mvpa_dataset(Y, brain_mask),
-  design  = rMVPA::mvpa_design(event_model$conditions)
+# Manual model construction for advanced features
+Y <- fmridataset::get_data(fmri_dset)
+mask <- fmridataset::get_mask(fmri_dset)
+
+# Create base rMVPA objects
+dataset <- rMVPA::mvpa_dataset(Y, mask)
+design <- create_mvpa_design_from_dataset(fmri_dset, ~ condition, ~ run)
+cross_validation <- rMVPA::blocked_cross_validation(
+  model.frame(~ run, fmri_dset$event_table)[[1]]
 )
 
+# Create model with progressive projection feature selector
+model <- rMVPA::mvpa_model(
+  model = rMVPA::load_model("sda_notune"),
+  dataset = dataset,
+  design = design,
+  crossval = cross_validation
+)
+
+# Add progressive projection feature selector
 model$feature_selector <- pp_feature_selector(dims = 5)
 
-pp_result <- run_searchlight(
-  Y, event_model, brain_mask,
-  classifier = "sda_notune",
-  projection_opts = list(),
-  cross_validation = NULL
-)
+# Run with custom model
+pp_result <- rMVPA::run_searchlight(model, radius = 3)
 ```
 
 ## Interpreting Results and Diagnostics
 
 The `searchlight_result` and `regional_mvpa_result` objects contain
 performance values and optional diagnostic information about the
-projection step. Functions such as `plot_searchlight_diagnostics()` can
-visualise adaptive lambda values or HRF weights for a given voxel.
+projection step:
 
-```{r diag-example, eval=FALSE}
-plot_searchlight_diagnostics(pp_result, voxel = 100, plot_type = "lambda")
+```{r results-example, eval=FALSE}
+# Access performance results
+performance_map <- sl_result$performance
+
+# Plot performance
+if (requireNamespace("ggplot2", quietly = TRUE)) {
+  plot(sl_result)
+}
+
+# Access diagnostic information if available
+if (!is.null(sl_result$diagnostics)) {
+  # Projection-specific diagnostics
+  lambda_values <- sl_result$diagnostics$lambda_sl_chosen
+  hrf_weights <- sl_result$diagnostics$w_sl
+}
 ```
 
-Refer to the package documentation for further details.
+## Data Format Requirements
+
+The `fmridataset` approach requires specific data formats:
+
+- **Time-series data**: `time × voxels` matrix
+- **Event table**: Data frame with `onset` column and factor columns for conditions
+- **Sampling frame**: Data frame describing the temporal structure (runs/blocks)
+- **Mask**: Logical vector or `NeuroVol` object defining brain regions
+
+```{r data-format, eval=FALSE}
+# Validate your dataset
+str(fmri_dset)
+
+# Check event table structure
+head(fmri_dset$event_table)
+
+# Check sampling frame
+print(fmri_dset$sampling_frame)
+
+# Verify time dimensions match
+cat("Time points in data:", nrow(fmridataset::get_data(fmri_dset)), "\n")
+cat("Total time from sampling:", sum(fmri_dset$sampling_frame$blocklens), "\n")
+```
+
+For more details on creating `fmridataset` objects, see the `fmridataset` package documentation.
 
