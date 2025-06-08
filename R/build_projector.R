@@ -42,9 +42,7 @@ build_projector <- function(X_theta, lambda_global = 0, diagnostics = FALSE,
   }
 
   if (lambda_global > 0) {
-    RtR <- crossprod(R)
     diag(RtR) <- diag(RtR) + lambda_global
-    tRQt <- t(R) %*% Qt
     cho <- chol(RtR)
     K_global <- backsolve(cho, backsolve(cho, tRQt, transpose = TRUE))
 
