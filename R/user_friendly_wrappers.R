@@ -11,7 +11,9 @@
 #'
 #' @param Y Time-series data matrix (time x voxels)
 #' @param event_model Event model from fmrireg or a list with onsets
-#' @param lambda_method Method for adaptive regularization: "none", "EB", or "CV"
+#' @param lambda_method Method for adaptive regularization. Options are
+#'   "none", "EB", or "LOOcv_local". The alias "CV" is also accepted for
+#'   backward compatibility.
 #' @param collapse_method Method for combining HRF bases: "rss", "pc", or "optim"
 #' @param lambda_global Global ridge penalty passed to
 #'   \code{build_projector()} and used as a floor for adaptive methods.
@@ -29,7 +31,7 @@
 #'                                  lambda_method = "EB")
 project_trials <- function(Y,
                           event_model,
-                          lambda_method = c("EB", "none", "CV"),
+                          lambda_method = c("EB", "none", "LOOcv_local"),
                           collapse_method = c("rss", "pc", "optim"),
                           lambda_global = 0.1,
                           hrf_basis = NULL,
@@ -37,7 +39,10 @@ project_trials <- function(Y,
 
   .Deprecated("run_regional")
   
-  lambda_method <- match.arg(lambda_method)
+  lambda_method <- match.arg(lambda_method,
+                             c("EB", "none", "LOOcv_local", "CV"))
+  if (lambda_method == "CV")
+    lambda_method <- "LOOcv_local"
   collapse_method <- match.arg(collapse_method)
   
   if (verbose) message("Building design matrix...")
@@ -51,6 +56,7 @@ project_trials <- function(Y,
   if (verbose) message("Creating projector...")
   
   # Step 2: Projector
+
   if (missing(lambda_global)) {
     lambda_global <- switch(lambda_method,
                            none = 0,
@@ -60,6 +66,7 @@ project_trials <- function(Y,
       is.na(lambda_global) || lambda_global < 0) {
     stop("lambda_global must be a single non-negative numeric value")
   }
+
   
   projector <- build_projector(
     X_theta = design$X,
@@ -69,7 +76,7 @@ project_trials <- function(Y,
   if (verbose) message("Projecting data...")
   
   # Step 3: Project
-  X_dense <- if (lambda_method %in% c("EB", "CV")) {
+  X_dense <- if (lambda_method %in% c("EB", "LOOcv_local")) {
     as.matrix(design$X)
   } else NULL
   
@@ -270,13 +277,12 @@ check_data_compatibility <- function(Y, event_model, TR = NULL) {
   cat("\nTesting projection pipeline...")
   
   test_result <- tryCatch({
-    small_test <- project_trials(
-      Y[, 1:min(100, n_voxels)], 
-      event_model,
-      verbose = FALSE
+    ds <- as_mvpa_dataset(
+      Y[, 1:min(100, n_voxels)],
+      event_model
     )
     cat(" SUCCESS\n")
-    cat("  Output dimensions:", dim(test_result), "\n")
+    cat("  Output dimensions:", dim(ds$data), "\n")
     TRUE
   }, error = function(e) {
     cat(" FAILED\n")
@@ -293,7 +299,9 @@ check_data_compatibility <- function(Y, event_model, TR = NULL) {
 #' Visualize diagnostic information for a specific searchlight to understand
 #' the projection process.
 #'
-#' @param results Results object with diagnostics
+#' @param results Results object containing a `diagnostics` list with one
+#'   entry per searchlight. If a vector `voxel_indices` is present it is used
+#'   to map voxels to diagnostic entries.
 #' @param voxel Central voxel index
 #' @param plot_type Type of plot: "weights", "lambda", "patterns"
 #' @export
