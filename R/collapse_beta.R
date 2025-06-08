@@ -35,6 +35,19 @@ collapse_beta <- function(Z_sl_raw, N_trials,
             K_hrf_bases > 0,
             nrow(Z_sl_raw) == N_trials * K_hrf_bases)
 
+  if (anyNA(Z_sl_raw)) {
+    warning("Z_sl_raw contains missing values")
+    V_sl <- ncol(Z_sl_raw)
+    A_vec <- rep(NA_real_, N_trials * V_sl)
+    dim(A_vec) <- c(N_trials, V_sl)
+    w_sl <- rep(1 / sqrt(K_hrf_bases), K_hrf_bases)
+    diag_list <- NULL
+    if (diagnostics) {
+      diag_list <- cap_diagnostics(list(method = method, w_sl = w_sl))
+    }
+    return(list(A_sl = A_vec, w_sl = w_sl, diag_data = diag_list))
+  }
+
 
   V_sl <- ncol(Z_sl_raw)
   Zmat <- matrix(Z_sl_raw, K_hrf_bases, N_trials * V_sl, byrow = FALSE)
