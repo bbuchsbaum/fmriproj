@@ -34,7 +34,8 @@ hrf_basis_spmg3_theta <- function(theta = c(1, 1), t) {
 
   hrf <- stats::dgamma(t, shape = p1, rate = d1) -
     0.35 * stats::dgamma(t, shape = p2, rate = d2)
-  if (max(hrf) != 0) hrf <- hrf / max(hrf)
+  hrf_max <- max(hrf)
+  if (hrf_max != 0) hrf <- hrf / hrf_max
 
   n <- length(hrf)
   deriv1 <- numeric(n)

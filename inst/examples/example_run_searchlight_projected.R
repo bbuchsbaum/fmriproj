@@ -93,7 +93,8 @@ flexible_hrf <- function(theta_params, time_vector) {
   
   # Gamma-like HRF
   hrf_main <- dgamma(time_vector, shape = ttp/width, scale = width)
-  hrf_main <- hrf_main / max(hrf_main)
+  hrf_max <- max(hrf_main)
+  hrf_main <- hrf_main / hrf_max
   
   # Simple derivative
   hrf_deriv <- c(0, diff(hrf_main))
