@@ -3512,7 +3512,7 @@ build_projector <- function(X_theta, lambda_global = 0, diagnostics = FALSE,
 
   } else {
     K_global <- tryCatch(
-      solve(R, Qt),
+      backsolve(R, Qt, upper = TRUE),
       error = function(e) MASS::ginv(R) %*% Qt
     )
   }
@@ -3603,7 +3603,7 @@ test_that("lambda_global 0 returns OLS projector", {
   if (!is.null(pivot_idx) && any(pivot_idx != seq_len(ncol(R)))) {
     R <- R[, order(pivot_idx), drop = FALSE]
   }
-  K_exp <- solve(R, Qt)
+  K_exp <- backsolve(R, Qt, upper = TRUE)
   expect_equal(proj$K_global, K_exp)
 })
 
