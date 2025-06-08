@@ -42,3 +42,35 @@ export(train_model.mvpa_model)
 export(projection_spec)
 export(run_searchlight)
 export(run_regional)
+
+# Generic functions (define if not from rMVPA)
+export(get_data)
+export(get_samples)
+export(data_sample)
+export(get_mask)
+
+# S3 methods for projecting_dataset
+S3method(get_data, projecting_dataset)
+S3method(get_samples, projecting_dataset)
+S3method(data_sample, projecting_dataset)
+S3method(get_mask, projecting_dataset)
+S3method(nobs, projecting_dataset)
+S3method(print, projecting_dataset)
+S3method('[', projecting_dataset)
+
+# Chunked projection functions
+export(wrap_as_chunked_projecting_dataset)
+export(recommend_chunk_size)
+S3method(print, chunked_projecting_dataset)
+
+# Diagnostic functions
+export(make_diagnostic_searchlight_fun)
+export(attach_projection_diagnostics)
+export(plot_projection_diagnostics)
+S3method(summary, fmriproj_searchlight_result)
+
+# Helper functions
+export(is.projecting_dataset)
+export(create_mvpa_design_from_dataset)
+export(create_mvpa_dataset_from_dataset)
+

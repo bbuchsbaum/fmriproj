@@ -52,14 +52,22 @@ test_that("wrap_as_projecting_dataset applies projection", {
 })
 
 
-test_that("pp_feature_selector attaches projection function", {
+test_that("pp_feature_selector stores projection function", {
   fs <- pp_feature_selector(method = "LDA", dims = 1)
-  X <- matrix(rnorm(10), ncol = 2)
-  lab <- rep(c("a","b"), each = 5)
+  X <- matrix(rnorm(20), ncol = 2)  # 10 rows, 2 columns
+  lab <- rep(c("a","b"), each = 5)  # 10 labels total
+  
+  # Call select_features
   sel <- fs$select_features(X, lab)
   expect_true(all(sel))
-  expect_true(!is.null(attr(X, "projection_function")))
-  proj <- attr(X, "projection_function")(X)
-  expect_equal(nrow(proj), nrow(X))
-  expect_equal(ncol(proj), fs$dims)
+  
+  # Get projection function from the feature selector
+  proj_fun <- fs$get_projection_function()
+  expect_false(is.null(proj_fun))
+  
+  if (!is.null(proj_fun)) {
+    proj <- proj_fun(X)
+    expect_equal(nrow(proj), nrow(X))
+    expect_equal(ncol(proj), fs$dims)
+  }
 })

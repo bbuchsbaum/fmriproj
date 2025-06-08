@@ -58,7 +58,7 @@ make_rmvpa_searchlight_fun <- function(spec,
         # Full output with diagnostics
         list(
           data = coll_res$A_sl,
-          lambda_sl = proj_res$diag_data$lambda_sl_chosen,
+          lambda_sl = if (!is.null(proj_res$diag_data)) proj_res$diag_data$lambda_sl_chosen else lambda_global,
           w_sl = coll_res$w_sl,
           coords = coords,
           indices = indices
@@ -82,15 +82,15 @@ make_rmvpa_searchlight_fun <- function(spec,
 as_mvpa_dataset <- function(Y, event_model, mask = NULL, ...) {
   # Build projection components
   design <- build_design_matrix(event_model, ...)
-  proj_comp <- build_projector(design$X, ...)
+  proj_comp <- build_projector(design$X)
   
   # Project full brain data
   N_trials <- length(event_model$onsets)
   K_hrf <- ncol(design$hrf_info$basis)
   
   # Apply projection
-  proj_res <- adaptive_ridge_projector(Y, proj_comp, ...)
-  coll_res <- collapse_beta(proj_res$Z_sl_raw, N_trials, K_hrf, ...)
+  proj_res <- adaptive_ridge_projector(Y, proj_comp)
+  coll_res <- collapse_beta(proj_res$Z_sl_raw, N_trials, K_hrf)
   
   # Create rMVPA-compatible structure
   structure(

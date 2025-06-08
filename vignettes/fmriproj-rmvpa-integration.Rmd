@@ -1,0 +1,267 @@
+---
+title: "Understanding fmriproj-rMVPA Integration"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Understanding fmriproj-rMVPA Integration}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  eval = FALSE
+)
+```
+
+## Overview
+
+This vignette explains how `fmriproj` integrates with `rMVPA` to enable MVPA analyses directly on fMRI time-series data. The key innovation is that fmriproj performs trial-wise projection on-the-fly, transforming continuous time-series into trial patterns that rMVPA can analyze.
+
+## Architecture Overview
+
+### Data Flow Diagram
+
+```
+Time-series Data (T × V) → fmriproj Projection → Trial Patterns (N × V) → rMVPA Analysis
+       ↓                           ↓                      ↓                    ↓
+  fmridataset               Adaptive Ridge          Event-locked         Classification
+   or matrix                 Projection              patterns              or RSA
+```
+
+### Key Components
+
+1. **Input Layer**: `fmridataset` objects or raw matrices
+2. **Transformation Layer**: `projecting_dataset` wrapper
+3. **Analysis Layer**: Standard rMVPA models and methods
+4. **Output Layer**: Enhanced results with optional diagnostics
+
+## The Projecting Dataset Wrapper
+
+The core innovation is the `projecting_dataset` class, which intercepts rMVPA's data access calls:
+
+```r
+# How it works internally
+wrap_as_projecting_dataset <- function(Y, projection_fun, original_dataset) {
+  structure(
+    list(
+      Y = Y,                          # Time-series data
+      projection_fun = projection_fun, # fmriproj projection
+      original = original_dataset,     # rMVPA dataset structure
+      get_data = function(indices) {
+        # When rMVPA requests data, apply projection
+        if (is.null(indices)) {
+          projection_fun(Y)  # Full brain
+        } else {
+          projection_fun(Y[, indices])  # Searchlight/ROI
+        }
+      }
+    ),
+    class = c("projecting_dataset", class(original_dataset))
+  )
+}
+```
+
+### How rMVPA Sees the Data
+
+From rMVPA's perspective, it's working with a standard `mvpa_dataset`:
+- When it calls `get_data()`, it receives trial patterns
+- The projection happens transparently
+- All rMVPA functionality works normally
+
+## Step-by-Step Data Flow
+
+### 1. Data Preparation
+
+```r
+# Start with time-series data
+fmri_dset <- fmridataset::fmri_dataset(
+  scans = c("run1.nii", "run2.nii"),
+  mask = "brain_mask.nii",
+  event_table = events_df
+)
+
+# Extract components
+Y <- get_data_matrix(fmri_dset)  # T × V matrix
+events <- fmri_dset$event_table
+```
+
+### 2. Projection Setup
+
+```r
+# Build projection components
+event_model <- list(
+  onsets = events$onset,
+  conditions = events$condition,
+  blocks = events$run
+)
+
+design <- build_design_matrix(event_model)
+projector <- build_projector(design$X)
+
+# Create projection specification
+spec <- projection_spec(
+  event_model = event_model,
+  projector_components = projector,
+  N_trials = length(event_model$onsets),
+  K_hrf = ncol(design$hrf_info$basis)
+)
+```
+
+### 3. Wrapper Creation
+
+```r
+# Create projection function
+sl_fun <- make_rmvpa_searchlight_fun(spec)
+
+# Wrap dataset with projection
+dataset <- rMVPA::mvpa_dataset(Y, mask)
+dataset <- wrap_as_projecting_dataset(Y, sl_fun, dataset)
+```
+
+### 4. rMVPA Analysis
+
+```r
+# Standard rMVPA workflow - no changes needed!
+design <- rMVPA::mvpa_design(
+  y_train = event_model$conditions,
+  block_var = event_model$blocks
+)
+
+model <- rMVPA::mvpa_model(
+  model = rMVPA::load_model("sda_notune"),
+  dataset = dataset,  # Our projecting dataset
+  design = design,
+  crossval = rMVPA::blocked_cross_validation(blocks)
+)
+
+# Run searchlight - projection happens automatically
+results <- rMVPA::run_searchlight(model, radius = 3)
+```
+
+## Memory-Efficient Processing
+
+For large datasets, use chunked projection:
+
+```r
+# Wrap with chunked projection
+chunk_size <- recommend_chunk_size(
+  n_timepoints = nrow(Y),
+  n_voxels = ncol(Y),
+  n_trials = length(events$onset),
+  memory_limit_gb = 4
+)
+
+dataset <- wrap_as_chunked_projecting_dataset(
+  Y = Y,
+  projection_fun = sl_fun,
+  original_dataset = dataset,
+  chunk_size = chunk_size,
+  cache_results = TRUE
+)
+```
+
+## Projection Diagnostics
+
+Enable diagnostics to understand the projection process:
+
+```r
+# Run with diagnostics
+results <- run_searchlight(
+  fmri_dset,
+  radius = 3,
+  y_formula = ~ condition,
+  block_formula = ~ run,
+  return_diagnostics = TRUE
+)
+
+# Access diagnostic information
+summary(results)  # Includes projection statistics
+
+# Visualize adaptive regularization
+plot_projection_diagnostics(results, diagnostic = "lambda")
+```
+
+## Advanced Features
+
+### Progressive Projection Integration
+
+Use fmriproj's progressive projection as feature selection:
+
+```r
+# Create PP feature selector
+model$feature_selector <- pp_feature_selector(
+  method = "LDA",
+  dims = 10
+)
+
+# rMVPA will use progressive projection instead of voxel selection
+```
+
+### Custom Projection Options
+
+```r
+projection_opts <- list(
+  lambda_adaptive_method = "EB",      # Empirical Bayes
+  collapse_method = "optim",          # Optimize HRF weights
+  lambda_global = 0.1                 # Base regularization
+)
+
+results <- run_searchlight(
+  fmri_dset,
+  projection_opts = projection_opts,
+  ...
+)
+```
+
+## Understanding S3 Method Dispatch
+
+The projecting dataset implements key S3 methods:
+
+```r
+# When rMVPA calls generic functions:
+get_data(dataset, indices)      # → get_data.projecting_dataset()
+get_samples(dataset, roi_list)   # → get_samples.projecting_dataset()
+nobs(dataset)                    # → nobs.projecting_dataset()
+```
+
+This ensures seamless integration without modifying rMVPA code.
+
+## Troubleshooting
+
+### Common Issues
+
+1. **Dimension Mismatch**
+   ```r
+   # Check expected dimensions
+   check_data_compatibility(Y, event_model, TR = 2.0)
+   ```
+
+2. **Memory Errors**
+   - Use chunked projection for large datasets
+   - Reduce searchlight radius
+   - Process in parallel with smaller chunks
+
+3. **Projection Failures**
+   - Ensure events don't exceed scan duration
+   - Check for sufficient trial spacing
+   - Verify HRF basis is appropriate
+
+### Performance Tips
+
+1. **Pre-compute projectors** for multiple analyses
+2. **Cache projection results** when running multiple models
+3. **Use appropriate chunk sizes** based on available memory
+4. **Enable parallel processing** through rMVPA
+
+## Summary
+
+The fmriproj-rMVPA integration provides:
+- Transparent time-series to trial pattern conversion
+- Full compatibility with rMVPA's analysis ecosystem
+- Memory-efficient processing options
+- Rich diagnostic information
+- Minimal code changes for users
+
+This design allows neuroscientists to leverage rMVPA's powerful MVPA tools directly on time-series data without manual trial extraction.

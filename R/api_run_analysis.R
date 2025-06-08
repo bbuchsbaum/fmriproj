@@ -12,9 +12,10 @@
 #' @param block_formula Formula selecting the block/run column.
 #' @param classifier Name of classifier model to load with `rMVPA::load_model`
 #' @param projection_opts List of options passed to the projection step
+#' @param return_diagnostics Logical; whether to capture projection diagnostics
 #' @param ... Additional arguments passed to `rMVPA::run_searchlight`
 #'
-#' @return An object of class `searchlight_result`
+#' @return An object of class `searchlight_result`, optionally enhanced with diagnostics
 #' @examples
 #' ## create a simple in-memory dataset
 #' Y <- matrix(rnorm(1000), nrow = 100)
@@ -41,6 +42,7 @@ run_searchlight <- function(fmri_dset,
                             block_formula,
                             classifier = "sda_notune",
                             projection_opts = list(),
+                            return_diagnostics = FALSE,
                             ...) {
   if (!requireNamespace("rMVPA", quietly = TRUE)) {
     stop("rMVPA package required. Install with: devtools::install_github('bbuchsbaum/rMVPA')")
@@ -88,7 +90,11 @@ run_searchlight <- function(fmri_dset,
     collapse_method = proj_opts$collapse_method
   )
 
-  sl_fun <- make_rmvpa_searchlight_fun(spec, return_format = "matrix")
+  if (return_diagnostics) {
+    sl_fun <- make_diagnostic_searchlight_fun(spec, return_diagnostics = TRUE)
+  } else {
+    sl_fun <- make_rmvpa_searchlight_fun(spec, return_format = "matrix")
+  }
 
   dataset <- create_mvpa_dataset_from_dataset(fmri_dset)
   dataset <- wrap_as_projecting_dataset(Y, sl_fun, dataset)
@@ -108,7 +114,15 @@ run_searchlight <- function(fmri_dset,
     crossval = cross_validation
   )
 
-  rMVPA::run_searchlight(model, radius = radius, ...)
+  result <- rMVPA::run_searchlight(model, radius = radius, ...)
+  
+  # Attach diagnostics if collected
+  if (return_diagnostics) {
+    diagnostics <- attr(sl_fun, "get_diagnostics")()
+    result <- attach_projection_diagnostics(result, diagnostics)
+  }
+  
+  result
 }
 
 #' Run MVPA on a single region of interest

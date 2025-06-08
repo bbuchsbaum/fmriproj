@@ -68,19 +68,66 @@ run_searchlight_projected <- function(model_spec,
 #'
 #' @keywords internal
 wrap_as_projecting_dataset <- function(Y, projection_fun, original_dataset) {
+  # Validate inputs
+  if (!is.matrix(Y) && !inherits(Y, "Matrix")) {
+    stop("Y must be a matrix (time x voxels)")
+  }
+  
+  if (!is.function(projection_fun)) {
+    stop("projection_fun must be a function")
+  }
+  
+  # Test projection function on small sample to validate output
+  tryCatch({
+    test_proj <- projection_fun(Y[, 1:min(10, ncol(Y)), drop = FALSE])
+    if (!is.matrix(test_proj)) {
+      stop("projection_fun must return a matrix")
+    }
+    expected_trials <- nrow(test_proj)
+  }, error = function(e) {
+    stop("Error testing projection function: ", e$message)
+  })
+  
   structure(
     list(
       Y = Y,
       projection_fun = projection_fun,
       original = original_dataset,
+      expected_trials = expected_trials,
       get_data = function(indices = NULL) {
-        if (is.null(indices)) {
-          # Full brain projection
-          projection_fun(Y)
-        } else {
-          # Searchlight projection
-          projection_fun(Y[, indices, drop = FALSE])
+        # Validate indices
+        if (!is.null(indices)) {
+          if (any(indices < 1) || any(indices > ncol(Y))) {
+            stop("Invalid voxel indices: must be between 1 and ", ncol(Y))
+          }
+          if (length(indices) == 0) {
+            stop("Empty indices provided")
+          }
         }
+        
+        # Perform projection with error handling
+        result <- tryCatch({
+          if (is.null(indices)) {
+            # Full brain projection
+            projection_fun(Y)
+          } else {
+            # Searchlight/ROI projection
+            projection_fun(Y[, indices, drop = FALSE])
+          }
+        }, error = function(e) {
+          stop("Projection failed: ", e$message)
+        })
+        
+        # Validate output
+        if (!is.matrix(result)) {
+          stop("Projection must return a matrix, got ", class(result))
+        }
+        
+        if (nrow(result) != expected_trials) {
+          stop("Projection returned ", nrow(result), " trials, expected ", expected_trials)
+        }
+        
+        result
       }
     ),
     class = c("projecting_dataset", class(original_dataset))
@@ -97,25 +144,35 @@ wrap_as_projecting_dataset <- function(Y, projection_fun, original_dataset) {
 #' @return Feature selector object compatible with rMVPA
 #' @export
 pp_feature_selector <- function(method = "LDA", dims = 2) {
+  # Create environment to store projection state
+  proj_env <- new.env(parent = emptyenv())
+  
   structure(
     list(
       method = method,
       dims = dims,
       cutoff_type = "top_k",  # rMVPA compatibility
       cutoff_value = dims,    # rMVPA compatibility
+      projection_env = proj_env,
       
       # This is what rMVPA calls
       select_features = function(X, Y, ...) {
         # Instead of returning logical vector, return projection function
         pp_model <- fit_pp(X, Y, method = method, dims = dims)
         
-        # Return a function that projects new data
-        attr(X, "projection_function") <- function(X_new) {
+        # Store the projection model and function
+        proj_env$model <- pp_model
+        proj_env$projection_function <- function(X_new) {
           predict_pp(pp_model, X_new)
         }
         
         # Return all features as "selected" - projection happens elsewhere
         rep(TRUE, ncol(X))
+      },
+      
+      # Method to get the projection function
+      get_projection_function = function() {
+        proj_env$projection_function
       }
     ),
     class = "feature_selector"
