@@ -11,7 +11,9 @@
 #'
 #' @param Y Time-series data matrix (time x voxels)
 #' @param event_model Event model from fmrireg or a list with onsets
-#' @param lambda_method Method for adaptive regularization: "none", "EB", or "CV"
+#' @param lambda_method Method for adaptive regularization. Options are
+#'   "none", "EB", or "LOOcv_local". The alias "CV" is also accepted for
+#'   backward compatibility.
 #' @param collapse_method Method for combining HRF bases: "rss", "pc", or "optim"
 #' @param hrf_basis Optional custom HRF basis matrix
 #' @param verbose Print progress messages
@@ -27,14 +29,17 @@
 #'                                  lambda_method = "EB")
 project_trials <- function(Y,
                           event_model,
-                          lambda_method = c("EB", "none", "CV"),
+                          lambda_method = c("EB", "none", "LOOcv_local"),
                           collapse_method = c("rss", "pc", "optim"),
                           hrf_basis = NULL,
                           verbose = TRUE) {
 
   .Deprecated("run_regional")
   
-  lambda_method <- match.arg(lambda_method)
+  lambda_method <- match.arg(lambda_method,
+                             c("EB", "none", "LOOcv_local", "CV"))
+  if (lambda_method == "CV")
+    lambda_method <- "LOOcv_local"
   collapse_method <- match.arg(collapse_method)
   
   if (verbose) message("Building design matrix...")
@@ -51,7 +56,7 @@ project_trials <- function(Y,
   lambda_global <- switch(lambda_method,
                          none = 0,
                          EB = 0.1,
-                         CV = 0.1)
+                         LOOcv_local = 0.1)
   
   projector <- build_projector(
     X_theta = design$X,
@@ -61,7 +66,7 @@ project_trials <- function(Y,
   if (verbose) message("Projecting data...")
   
   # Step 3: Project
-  X_dense <- if (lambda_method %in% c("EB", "CV")) {
+  X_dense <- if (lambda_method %in% c("EB", "LOOcv_local")) {
     as.matrix(design$X)
   } else NULL
   
@@ -296,7 +301,9 @@ check_data_compatibility <- function(Y, event_model, TR = NULL, quiet = FALSE) {
 #' Visualize diagnostic information for a specific searchlight to understand
 #' the projection process.
 #'
-#' @param results Results object with diagnostics
+#' @param results Results object containing a `diagnostics` list with one
+#'   entry per searchlight. If a vector `voxel_indices` is present it is used
+#'   to map voxels to diagnostic entries.
 #' @param voxel Central voxel index
 #' @param plot_type Type of plot: "weights", "lambda", "patterns"
 #' @export
