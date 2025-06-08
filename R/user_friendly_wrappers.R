@@ -262,13 +262,12 @@ check_data_compatibility <- function(Y, event_model, TR = NULL) {
   cat("\nTesting projection pipeline...")
   
   test_result <- tryCatch({
-    small_test <- project_trials(
-      Y[, 1:min(100, n_voxels)], 
-      event_model,
-      verbose = FALSE
+    ds <- as_mvpa_dataset(
+      Y[, 1:min(100, n_voxels)],
+      event_model
     )
     cat(" SUCCESS\n")
-    cat("  Output dimensions:", dim(test_result), "\n")
+    cat("  Output dimensions:", dim(ds$data), "\n")
     TRUE
   }, error = function(e) {
     cat(" FAILED\n")
