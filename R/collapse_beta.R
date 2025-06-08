@@ -4,6 +4,7 @@
 #' feature patterns. Supports the default root-sum-square (`method = "rss"`),
 #' an SNR-optimal principal component (`method = "pc"`), and optional
 #' supervised optimization of the collapse weights (`method = "optim"`).
+#' The resulting weights `w_sl` are normalized to unit length.
 #'
 #' @param Z_sl_raw Matrix of raw projected coefficients with
 #'   `(N_trials * K_hrf_bases)` rows and `V_sl` columns.
@@ -16,10 +17,10 @@
 #' @param classifier_for_w_optim Function returning loss and gradient given
 #'   `A_sl` and labels when `method = "optim"`.
 #' @param optim_w_params List of controls passed to `stats::optim` when
-#'   `method = "optim"`.
+#'   `method = "optim"`. The `maxit` element defaults to 5.
 #' @return A list with elements:
 #'   \item{A_sl}{Collapsed trial pattern matrix `N_trials x V_sl`.}
-#'   \item{w_sl}{Collapse weights used for combining HRF bases.}
+#'   \item{w_sl}{Normalized collapse weights (unit length) used for combining HRF bases.}
 #'   \item{diag_data}{Optional diagnostics.}
 #' @export
 collapse_beta <- function(Z_sl_raw, N_trials,
