@@ -26,7 +26,7 @@
 #' @param use_fd_grad Logical; compute gradient using finite differences.
 #'   An optional TMB-based implementation can be added, but there is no
 #'   requirement for TMB.
-#' @param use_tmb Deprecated. Use `use_fd_grad` instead.
+#' @param use_tmb `r lifecycle::badge('deprecated')` Use `use_fd_grad` instead.
 #' @param lower Lower bounds for optimization (for methods that support bounds).
 #' @param upper Upper bounds for optimization (for methods that support bounds).
 #' @param ... Additional arguments passed to `inner_cv_fn`.
@@ -56,7 +56,11 @@ optimize_hrf_mvpa <- function(theta_init,
   trace_env <- new.env(parent = emptyenv())
 
   if (!is.null(use_tmb)) {
-    warning("`use_tmb` is deprecated; use `use_fd_grad` instead.", call. = FALSE)
+    lifecycle::deprecate_warn(
+      "0.1.1",
+      "optimize_hrf_mvpa(use_tmb)",
+      "optimize_hrf_mvpa(use_fd_grad)"
+    )
     use_fd_grad <- use_tmb
   }
 
