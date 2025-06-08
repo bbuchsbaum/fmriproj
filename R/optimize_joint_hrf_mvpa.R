@@ -119,12 +119,29 @@ optimize_hrf_mvpa <- function(theta_init,
     }
   }
 
-  optim_res <- stats::optim(par = theta_init,
-                            fn = loss_fn_theta,
-                            gr = grad_fn,
-                            method = optim_method,
-                            lower = lower,
-                            upper = upper)
+  valid_methods <-
+    c("Nelder-Mead", "BFGS", "CG", "L-BFGS-B", "SANN", "Brent")
+  if (!optim_method %in% valid_methods) {
+    stop(paste0("`optim_method` must be one of: ",
+                paste(valid_methods, collapse = ", ")), call. = FALSE)
+  }
+
+  bounds_finite <- any(is.finite(lower)) || any(is.finite(upper))
+  if (bounds_finite && !optim_method %in% c("L-BFGS-B", "Brent")) {
+    warning(paste0("Bounds specified but ignored for method '",
+                   optim_method, "'."), call. = FALSE)
+  }
+
+  optim_args <- list(par = theta_init,
+                     fn = loss_fn_theta,
+                     gr = grad_fn,
+                     method = optim_method)
+  if (bounds_finite && optim_method %in% c("L-BFGS-B", "Brent")) {
+    optim_args$lower <- lower
+    optim_args$upper <- upper
+  }
+
+  optim_res <- do.call(stats::optim, optim_args)
 
   diag_list <- NULL
   if (diagnostics) {
