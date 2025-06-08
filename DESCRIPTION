@@ -24,6 +24,7 @@ Imports:
     Matrix,
     dplyr,
     tibble,
+    lifecycle,
     Rcpp,
     RcppArmadillo,
     MASS,
