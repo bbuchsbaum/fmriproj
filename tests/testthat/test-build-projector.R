@@ -131,3 +131,8 @@ test_that("build_projector validates inputs", {
                "lambda_global must be")
 
 })
+
+test_that("build_projector errors on NA values", {
+  X <- matrix(c(1, NA, 0, 1), nrow = 2)
+  expect_error(build_projector(X), "X_theta must not contain missing values")
+})

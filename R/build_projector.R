@@ -19,6 +19,9 @@ build_projector <- function(X_theta, lambda_global = 0, diagnostics = FALSE,
   if (!inherits(X_theta, c("matrix", "Matrix"))) {
     stop("X_theta must be a matrix or Matrix")
   }
+  if (anyNA(X_theta)) {
+    stop("X_theta must not contain missing values")
+  }
   if (!is.numeric(lambda_global) || length(lambda_global) != 1 ||
       lambda_global < 0) {
     stop("lambda_global must be a single non-negative numeric value")
