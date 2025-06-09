@@ -1,3 +1,15 @@
+#' Internal helper: Solve ridge regression using Cholesky decomposition
+#' @noRd
+.solve_ridge_chol <- function(R, Qt, Y, lambda) {
+  lhs <- crossprod(R)
+  diag(lhs) <- diag(lhs) + lambda
+  tRQt <- t(R) %*% Qt
+  
+  cho <- chol(lhs)
+  K <- backsolve(cho, backsolve(cho, tRQt, transpose = TRUE))
+  K %*% Y
+}
+
 #' Adaptive Ridge Projection for a Searchlight
 #'
 #' Computes a ridge-regularized projector for a searchlight's BOLD data using
@@ -15,12 +27,14 @@
 #'   computing residuals when `lambda_adaptive_method = "EB"` or when
 #'   cross-validating local lambda.
 #' @param lambda_grid_local Optional numeric vector of candidate penalties used
-#'   when `lambda_adaptive_method = "LOOcv_local"`. Defaults to
-#'   `c(0, 0.1, 1, 10)`.
+#'   when `lambda_adaptive_method = "LOOcv_local"` or `"KFold_cv_local"`.
+#'   Defaults to `c(0, 0.1, 1, 10)`.
 #' @param folds_local_cv Optional vector of fold assignments for local
 #'   cross-validation. Length must match `nrow(Y_sl)`. By default, a balanced
 #'   sequence of up to 4 folds is used.
-#' @param diagnostics Logical; return diagnostic information.
+#' @param diagnostics Logical; return diagnostic information. Note: When TRUE,
+#'   this stores the full K_sl projector matrix which can consume significant
+#'   memory in whole-brain analyses.
 #' @return A list with elements:
 #'   \item{Z_sl_raw}{Projected coefficients ((N*K) x V_sl).}
 #'   \item{diag_data}{List of diagnostic information if requested. When
@@ -80,12 +94,14 @@ adaptive_ridge_projector <- function(Y_sl,
 
       ## voxel-wise variance estimates
       s_n_sq_vec <- colSums(resid_mat^2) / (T_obs - m)
-      s_b_sq_vec <- colSums(beta_ols^2) / m
+      s_b_sq_vec <- (colSums(beta_ols^2) / m) + .Machine$double.eps
 
       lambda_sl_raw <- median(s_n_sq_vec / s_b_sq_vec, na.rm = TRUE)
+      # Cap maximum lambda to prevent extreme shrinkage
+      lambda_sl_raw <- min(lambda_sl_raw, 1e6)
       lambda_eff    <- max(lambda_floor_global, lambda_sl_raw)
     }
-  } else if (lambda_adaptive_method == "LOOcv_local") {
+  } else if (lambda_adaptive_method == "LOOcv_local" || lambda_adaptive_method == "KFold_cv_local") {
     if (is.null(X_theta_for_EB_residuals)) {
       stop("X_theta_for_EB_residuals must be provided for LOOcv_local")
     }
@@ -97,34 +113,55 @@ adaptive_ridge_projector <- function(Y_sl,
       stopifnot(length(folds_local_cv) == T_obs)
       folds <- folds_local_cv
     }
-    lambda_grid <- lambda_grid_local + lambda_floor_global
+    lambda_grid <- unique(lambda_grid_local + lambda_floor_global)
     cv_err <- numeric(length(lambda_grid))
-    for (i in seq_along(lambda_grid)) {
-      lam <- lambda_grid[i]
-      err <- 0
-      for (f in unique(folds)) {
-        idx_te <- which(folds == f)
-        idx_tr <- setdiff(seq_len(T_obs), idx_te)
-        qr_tr <- tryCatch(qr(X[idx_tr, , drop = FALSE]),
-                          error = function(e) {
-                            stop("QR decomposition failed in fold ", f, ": ", e$message)
-                          })
-        Qt_tr <- t(qr.Q(qr_tr))
-        R_tr <- qr.R(qr_tr)
-        lhs <- crossprod(R_tr)
+    
+    # Loop over folds first (more efficient)
+    for (f in unique(folds)) {
+      idx_te <- which(folds == f)
+      idx_tr <- setdiff(seq_len(T_obs), idx_te)
+      
+      X_tr <- X[idx_tr, , drop = FALSE]
+      Y_tr <- Y_sl[idx_tr, , drop = FALSE]
+      
+      # Single QR decomposition per fold
+      qr_tr <- tryCatch(qr(X_tr),
+                        error = function(e) {
+                          stop("QR decomposition failed in fold ", f, ": ", e$message)
+                        })
+      Qt_tr <- t(qr.Q(qr_tr))
+      R_tr <- qr.R(qr_tr)
+      
+      # Pre-compute parts that don't depend on lambda
+      lhs_base <- crossprod(R_tr)
+      rhs_base <- t(R_tr) %*% Qt_tr %*% Y_tr
+      
+      # Now loop over lambdas for this fold
+      for (i in seq_along(lambda_grid)) {
+        lam <- lambda_grid[i]
+        
+        # Copy base matrix and add regularization
+        lhs <- lhs_base
         diag(lhs) <- diag(lhs) + lam
-        beta_tr <- tryCatch(solve(lhs,
-                                  t(R_tr) %*% Qt_tr %*% Y_sl[idx_tr, , drop = FALSE]),
+        
+        beta_tr <- tryCatch(solve(lhs, rhs_base),
                             error = function(e) {
-                              stop("Ridge solve failed for lambda ", lam,
-                                   " in fold ", f, ": ", e$message)
+                              # Return matrix of Inf to signal failure
+                              matrix(Inf, nrow = ncol(X), ncol = ncol(Y_sl))
                             })
+        
         pred <- X[idx_te, , drop = FALSE] %*% beta_tr
-        err <- err + sum((Y_sl[idx_te, , drop = FALSE] - pred)^2)
+        err_fold <- sum((Y_sl[idx_te, , drop = FALSE] - pred)^2)
+        cv_err[i] <- cv_err[i] + err_fold
       }
-      cv_err[i] <- err
     }
-    lambda_sl_raw <- lambda_grid[which.min(cv_err)]
+    # Check if all errors are Inf (total failure)
+    if (all(is.infinite(cv_err))) {
+      warning("Cross-validation failed for all lambdas; falling back to lambda_floor_global")
+      lambda_sl_raw <- lambda_floor_global
+    } else {
+      lambda_sl_raw <- lambda_grid[which.min(cv_err)]
+    }
     lambda_eff <- max(lambda_floor_global, lambda_sl_raw)
   } else {
     stop("Unknown lambda_adaptive_method")
@@ -132,21 +169,29 @@ adaptive_ridge_projector <- function(Y_sl,
 
   m <- ncol(R)
 
-  RtR <- crossprod(R)
-  lhs <- RtR
-  diag(lhs) <- diag(lhs) + lambda_eff
-
-  tRQt <- t(R) %*% Qt
-  K_sl <- tryCatch({
-    cho <- chol(lhs)
-    backsolve(cho, backsolve(cho, tRQt, transpose = TRUE))
+  # Use helper function for ridge solve
+  Z_sl_raw <- tryCatch({
+    .solve_ridge_chol(R, Qt, Y_sl, lambda_eff)
   },
   error = function(e) {
-    stop("Ridge solve failed with lambda ", lambda_eff, ": ", e$message)
+    if (grepl("not positive definite", e$message)) {
+      stop("Ridge solve failed with lambda ", lambda_eff, 
+           ". This can happen if the design matrix is rank-deficient and lambda is too small. ",
+           "Original error: ", e$message)
+    } else {
+      stop("Ridge solve failed with lambda ", lambda_eff, ": ", e$message)
+    }
   })
-
-
-  Z_sl_raw <- K_sl %*% Y_sl
+  
+  # Compute K_sl if needed for diagnostics
+  K_sl <- NULL
+  if (diagnostics) {
+    lhs <- crossprod(R)
+    diag(lhs) <- diag(lhs) + lambda_eff
+    tRQt <- t(R) %*% Qt
+    cho <- chol(lhs)
+    K_sl <- backsolve(cho, backsolve(cho, tRQt, transpose = TRUE))
+  }
 
   diag_list <- NULL
   if (diagnostics) {
