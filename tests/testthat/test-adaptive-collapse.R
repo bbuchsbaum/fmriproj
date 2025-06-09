@@ -173,10 +173,10 @@ test_that("adaptive_ridge_projector skips EB when T_obs <= m", {
                                                  lambda_floor_global = 0.5,
                                                  X_theta_for_EB_residuals = X,
                                                  diagnostics = TRUE),
-                 "T_obs <= m")
+                 "T_obs.*number of regressors")
   expect_equal(res$diag_data$lambda_sl_chosen, 0.5)
-  expect_true(is.na(res$diag_data$s_n_sq))
-  expect_true(is.na(res$diag_data$s_b_sq))
+  expect_true(is.na(res$diag_data$s_n_sq_vec))
+  expect_true(is.na(res$diag_data$s_b_sq_vec))
 })
 
 test_that("collapse_beta rss warns and returns NA on NA input", {

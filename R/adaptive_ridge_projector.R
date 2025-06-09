@@ -152,8 +152,8 @@ adaptive_ridge_projector <- function(Y_sl,
   if (diagnostics) {
     dl <- list(lambda_sl_chosen = lambda_eff,
                lambda_sl_raw = lambda_sl_raw,
-               s_n_sq = s_n_sq,
-               s_b_sq = s_b_sq,
+               s_n_sq_vec = s_n_sq_vec,
+               s_b_sq_vec = s_b_sq_vec,
                K_sl = K_sl)
 
     diag_list <- cap_diagnostics(dl)

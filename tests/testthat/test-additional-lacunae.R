@@ -104,7 +104,7 @@ test_that("fit_pp rejects unknown methods", {
 test_that("collapse_beta pc falls back to rss on eigen failure", {
   Z <- matrix(c(1, NA, 3, 4), nrow = 4, ncol = 1)
   expect_warning(res <- collapse_beta(Z, N_trials = 2, K_hrf_bases = 2,
-                                      method = "pc"), "PCA failed")
+                                      method = "pc"), "Z_sl_raw contains missing values")
   expect_equal(res$w_sl, rep(1 / sqrt(2), 2))
   expect_true(all(is.na(res$A_sl)))
 })
