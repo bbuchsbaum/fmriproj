@@ -18,6 +18,8 @@ make_diagnostic_searchlight_fun <- function(spec, return_diagnostics = TRUE) {
   lambda_global <- spec$lambda_global
   collapse_method <- spec$collapse_method
   X_theta_dense <- spec$X_theta_dense
+  align_sign <- spec$align_sign %||% TRUE
+  sign_anchor <- spec$sign_anchor %||% "canonical"
   
   # Storage for diagnostics
   diagnostics_env <- new.env(parent = emptyenv())
@@ -39,7 +41,9 @@ make_diagnostic_searchlight_fun <- function(spec, return_diagnostics = TRUE) {
       proj_res$Z_sl_raw,
       N_trials,
       K_hrf,
-      method = collapse_method
+      method = collapse_method,
+      align_sign = align_sign,
+      sign_anchor = sign_anchor
     )
     
     # Store diagnostics if requested

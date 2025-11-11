@@ -1,16 +1,15 @@
-# Snapshot of `print.fr_design_matrix outputs summary`
+# print.fr_design_matrix outputs summary
 
-```
-fr_design_matrix
- - X dims: 6 x 6 [sparse]
- - event_model present
-```
+    fr_design_matrix
+     - X dims: 6 x 4 [sparse]
+     - event_model present
 
-# Snapshot of `print.fr_projector outputs summary`
+# print.fr_projector outputs summary
 
-```
-fr_projector
- - Qt dims: 6 x 6 
- - R dims: 6 x 6 
- - K_global dims: 6 x 6 
-```
+    fr_projector
+     - Representation: qr
+     - Original dims: 6 x 4
+     - R dims: 4 x 4
+     - Lambda: 0.0000
+     - K_global: none
+

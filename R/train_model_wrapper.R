@@ -12,7 +12,15 @@
 #' @return The fitted model as returned by `rMVPA::train_model`.
 #' @export
 train_model.mvpa_model <- function(obj, X, ...) {
-  if (!requireNamespace("rMVPA", quietly = TRUE)) {
+  require_fn <- getOption("fmriproj.requireNamespace", base::requireNamespace)
+  asNamespace_fn <- getOption("fmriproj.asNamespace", base::asNamespace)
+  getS3_fn <- getOption("fmriproj.getS3method", utils::getS3method)
+
+  if (!is.function(require_fn) || !is.function(asNamespace_fn) || !is.function(getS3_fn)) {
+    stop("Internal dependency hooks are invalid")
+  }
+
+  if (!isTRUE(require_fn("rMVPA", quietly = TRUE))) {
     stop("rMVPA package required. Install with: devtools::install_github('bbuchsbaum/rMVPA')")
   }
 
@@ -21,6 +29,6 @@ train_model.mvpa_model <- function(obj, X, ...) {
     X <- proj_fun(X)
   }
 
-  orig <- getS3method("train_model", "mvpa_model", envir = asNamespace("rMVPA"))
+  orig <- getS3_fn("train_model", "mvpa_model", envir = asNamespace_fn("rMVPA"))
   orig(obj, X, ...)
 }

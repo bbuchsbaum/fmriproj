@@ -1,0 +1,376 @@
+---
+title: Getting started with fmriproj
+description: |
+  Learn how to perform direct MVPA from fMRI time-series data with a complete end-to-end example.
+output:
+  rmarkdown::html_vignette:
+    toc: yes
+    toc_depth: 2
+vignette: |
+  %\VignetteIndexEntry{Getting started with fmriproj} %\VignetteEngine{knitr::rmarkdown} %\VignetteEncoding{UTF-8}
+css: albers.css
+params:
+  family: red
+resource_files:
+- albers.css
+- albers.js
+includes:
+  in_header: |-
+    <script src="albers.js"></script>
+    <script>document.addEventListener('DOMContentLoaded',()=>document.body.classList.add('palette-red'));</script>
+
+---
+
+```{r setup, include=FALSE}
+if (requireNamespace("ggplot2", quietly = TRUE) && requireNamespace("albersdown", quietly = TRUE)) ggplot2::theme_set(albersdown::theme_albers(params$family))
+if (requireNamespace("ggplot2", quietly = TRUE) && requireNamespace("albersdown", quietly = TRUE)) ggplot2::theme_set(albersdown::theme_albers(params$family))
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment  = "#>",
+  fig.align = "center",
+  fig.retina = 2,
+  fig.width = 7,
+  fig.asp = 0.618,
+  out.width = "100%",
+  message = FALSE,
+  warning = FALSE
+)
+set.seed(123)
+options(pillar.sigfig = 7, width = 80)
+
+# Source vignette helpers
+source("vignette_helpers.R")
+```
+
+## What you'll learn {#objectives}
+
+By the end of this vignette, you will be able to:
+
+- Create synthetic fMRI data for testing (or load your own)
+- Build trial-wise design matrices from event timing
+- Run a complete searchlight MVPA analysis
+- Interpret projection diagnostics
+- Understand when and why to use fmriproj over traditional GLM approaches
+
+**Prerequisites**: Familiarity with R, basic fMRI concepts (BOLD signal, TR, events), and general awareness of MVPA.
+
+**Estimated time**: 10-12 minutes
+
+## The problem {#problem}
+
+Traditional fMRI MVPA follows a two-stage process:
+
+1. Fit a GLM to every voxel across the whole brain → produce beta maps
+2. Feed those beta maps into MVPA
+
+This approach has drawbacks:
+
+- **Memory intensive**: Whole-brain GLMs require storing large design matrices and beta images
+- **Fixed HRF**: You commit to one hemodynamic response function (HRF) shape for all brain regions
+- **Inflexible**: Difficult to optimize temporal models jointly with classification objectives
+- **Computationally expensive**: Fitting tens of thousands of independent GLMs
+
+fmriproj takes a different approach: **project directly from time-series to trial patterns** only where you need them (e.g., within each searchlight), using adaptive regularization and flexible HRF parameterizations.
+
+## TL;DR: Minimal working example {#tldr}
+
+If you just want to see code that runs, here's the complete workflow:
+
+```{r minimal-example}
+library(fmriproj)
+
+# Set theme for plots
+if (requireNamespace("ggplot2", quietly = TRUE)) {
+  ggplot2::theme_set(theme_albers())
+}
+
+# Create synthetic fMRI data (you'd load your own here)
+synth_data <- create_synthetic_fmri(
+  n_voxels = 100,
+  n_timepoints = 200,
+  n_trials = 40,
+  n_conditions = 2,
+  TR = 2
+)
+
+# Build the trial-wise design matrix
+event_model <- fmridesign::event_model(
+  onset = synth_data$event_table$onset,
+  duration = synth_data$event_table$duration,
+  run = synth_data$event_table$run,
+  hrf = fmrihrf::hrf_spmg1
+)
+
+design_result <- build_design_matrix(
+  event_model = event_model,
+  TR = synth_data$TR,
+  n_time = ncol(synth_data$Y)
+)
+
+cat("Design matrix dimensions:", dim(design_result$X), "\n")
+cat("Number of trials:", length(unique(design_result$trial_indices)), "\n")
+```
+
+The design matrix has one column per trial. Now let's project the BOLD data:
+
+```{r project-data}
+# Build the projector (QR + ridge components)
+projector <- build_projector(
+  X = design_result$X,
+  lambda_global = 0.1
+)
+
+# Adaptive ridge projection
+projection <- adaptive_ridge_projector(
+  Y_sl = synth_data$Y,
+  Q_sl = projector$Q_sl,
+  R_sl = projector$R_sl,
+  lambda_global = 0.1,
+  lambda_adaptive_method = "EB"  # Empirical Bayes
+)
+
+# Collapse HRF basis functions to get one value per trial
+trial_patterns <- collapse_beta(
+  Z_sl_raw = projection$Z_sl_raw,
+  N_trials = synth_data$n_trials,
+  method = "rss"  # Root sum of squares
+)
+
+cat("Trial patterns dimensions:", dim(trial_patterns$beta), "\n")
+```
+
+We now have a **40 trials × 100 voxels** matrix ready for MVPA!
+
+## Setup: Create or load fMRI data {#setup}
+
+For this tutorial, we'll use synthetic data. In practice, you would load your preprocessed fMRI time-series.
+
+```{r create-data}
+# Create synthetic data
+data <- create_synthetic_fmri(
+  n_voxels = 200,        # Small ROI
+  n_timepoints = 240,    # ~8 minutes at TR=2
+  n_trials = 48,         # 48 experimental trials
+  n_conditions = 2,      # Binary classification
+  TR = 2,                # 2-second repetition time
+  signal_strength = 0.6  # Moderate signal
+)
+
+# Inspect the event table
+head(data$event_table)
+```
+
+The event table must have these columns:
+
+- `onset`: When each trial started (in seconds)
+- `duration`: How long each trial lasted (in seconds)
+- `condition`: Experimental condition label
+- `trial_id`: Unique identifier per trial
+- `run`: Which scanning run (for cross-validation)
+
+```{r check-data-structure}
+cat("BOLD data: ", nrow(data$Y), "voxels ×", ncol(data$Y), "timepoints\n")
+cat("TR:", data$TR, "seconds\n")
+cat("Total trials:", nrow(data$event_table), "\n")
+cat("Conditions:", unique(data$event_table$condition), "\n")
+```
+
+## Walkthrough: Building trial patterns {#walkthrough}
+
+### Step 1: Create the event model {#event-model}
+
+We use the `fmridesign` package to create an event model. This specifies trial timing and prepares for HRF convolution.
+
+```{r event-model}
+library(fmridesign)
+library(fmrihrf)
+
+# Create event model
+emodel <- event_model(
+  onset = data$event_table$onset,
+  duration = data$event_table$duration,
+  condition = data$event_table$condition,
+  run = data$event_table$run,
+  hrf = hrf_spmg1  # Single-gamma HRF
+)
+
+print(emodel)
+```
+
+The `event_model` object encapsulates trial timing. The HRF (`hrf_spmg1`) will be convolved with trial onsets to create regressors.
+
+### Step 2: Build the design matrix {#design-matrix}
+
+```{r build-design-matrix}
+design <- build_design_matrix(
+  event_model = emodel,
+  TR = data$TR,
+  n_time = ncol(data$Y)
+)
+
+cat("Design matrix dimensions:", dim(design$X), "\n")
+cat("  - Rows (timepoints):", nrow(design$X), "\n")
+cat("  - Columns (trials):", ncol(design$X), "\n")
+```
+
+Each column of `design$X` represents one trial's predicted BOLD response over time.
+
+> **Note**: If you use a multi-basis HRF (e.g., `hrf_spmg3`), you'll get multiple columns per trial (one for each basis function). These are later collapsed into a single value.
+
+### Step 3: Build the projector {#projector}
+
+The projector performs QR decomposition and sets up ridge regularization:
+
+```{r build-projector}
+proj <- build_projector(
+  X = design$X,
+  lambda_global = 0.1  # Global regularization parameter
+)
+
+names(proj)
+```
+
+The `Q_sl` and `R_sl` components enable efficient projection. Think of this as precomputing the parts of the ridge regression that don't depend on the actual BOLD data.
+
+### Step 4: Adaptive ridge projection {#projection}
+
+Now we project the BOLD time-series onto the trial space using adaptive ridge regression:
+
+```{r adaptive-projection}
+proj_result <- adaptive_ridge_projector(
+  Y_sl = data$Y,
+  Q_sl = proj$Q_sl,
+  R_sl = proj$R_sl,
+  lambda_global = 0.1,
+  lambda_adaptive_method = "EB"  # Empirical Bayes
+)
+
+cat("Adaptive lambda:", round(proj_result$lambda_adaptive, 4), "\n")
+cat("Residual variance:", round(proj_result$residual_variance, 4), "\n")
+```
+
+The `adaptive_ridge_projector()` function:
+
+1. Uses the global lambda as a starting point
+2. Estimates a data-driven adaptive lambda using Empirical Bayes
+3. Computes the projection: $Z = (X'X + \lambda I)^{-1} X'Y$
+
+### Step 5: Collapse HRF basis {#collapse}
+
+If you used a multi-basis HRF, you have multiple coefficients per trial. We collapse them to one value per trial:
+
+```{r collapse-beta}
+patterns <- collapse_beta(
+  Z_sl_raw = proj_result$Z_sl_raw,
+  N_trials = data$n_trials,
+  method = "rss"  # Root sum of squares
+)
+
+cat("Final trial patterns:", dim(patterns$beta), "\n")
+cat("  (", data$n_trials, "trials ×", nrow(data$Y), "voxels )\n")
+```
+
+**Collapse methods**:
+
+- `"rss"`: Root sum of squares across basis functions (default, robust)
+- `"pc"`: First principal component of the basis functions
+- `"optim"`: Supervised weights that maximize a downstream objective (advanced)
+
+## Understanding the output {#output}
+
+You now have a matrix of trial patterns (`patterns$beta`). Each row is a trial, each column is a voxel:
+
+```{r inspect-output}
+head(patterns$beta[, 1:5])
+```
+
+This matrix can be used directly with MVPA classifiers. The values represent estimated neural activity for each trial at each voxel, having accounted for HRF convolution and regularization.
+
+## When to use fmriproj {#when-to-use}
+
+**Use fmriproj when**:
+
+- You want to avoid whole-brain GLM estimation
+- Memory is limited (large 7T datasets, high-resolution scans)
+- You need flexible HRF modeling (optimization, multiple bases)
+- You want adaptive regularization within searchlights
+- You're already using rMVPA (seamless integration)
+
+**Consider traditional GLM→MVPA when**:
+
+- You have small datasets and ample memory
+- You need beta images for visualization or other downstream analyses
+- Your HRF is well-characterized and fixed
+
+## Edge cases and diagnostics {#diagnostics}
+
+### Checking for poor projection
+
+If projection fails, you might see:
+
+- Very high residual variance
+- Lambda shooting to extreme values
+- All-zero or all-identical trial patterns
+
+```{r check-diagnostics}
+# Good projection has moderate residuals
+if (proj_result$residual_variance > 0.9) {
+  warning("High residual variance - projection may be poor")
+}
+
+# Lambda should be reasonable
+if (proj_result$lambda_adaptive < 1e-6 || proj_result$lambda_adaptive > 100) {
+  warning("Extreme lambda value - check data quality")
+}
+```
+
+### Visualizing trial patterns
+
+```{r visualize-patterns, eval=requireNamespace("ggplot2", quietly=TRUE)}
+library(ggplot2)
+
+# Average pattern across voxels per trial
+trial_means <- rowMeans(patterns$beta)
+
+trial_df <- data.frame(
+  trial = 1:data$n_trials,
+  activation = trial_means,
+  condition = data$event_table$condition
+)
+
+ggplot(trial_df, aes(trial, activation, color = condition)) +
+  geom_point(size = 2) +
+  geom_smooth(se = FALSE, linewidth = 0.8) +
+  scale_color_albers() +
+  labs(
+    title = "Trial-wise activation patterns",
+    subtitle = "Average across voxels",
+    x = "Trial number",
+    y = "Mean activation (projected)",
+    caption = "Synthetic data demonstration"
+  ) +
+  theme_albers()
+```
+
+## Next steps {#next-steps}
+
+Now that you understand the basic projection workflow, you can:
+
+- **Run complete MVPA workflows**: See `vignette("common-workflows")` for searchlight and ROI analyses
+- **Optimize HRF parameters**: See `vignette("advanced-features")` for joint HRF-MVPA optimization
+- **Integrate with rMVPA**: See `vignette("fmriproj-rmvpa-integration")` for transparent integration details
+- **Explore the formula API**: Use `project_trials_formula()` for a more user-friendly interface
+
+## See also {#see-also}
+
+- [Common Analysis Workflows](common-workflows.html) - Complete searchlight and ROI recipes
+- [Understanding fmriproj-rMVPA Integration](fmriproj-rmvpa-integration.html) - How the S3 method dispatch works
+- [Advanced Features](advanced-features.html) - HRF optimization and performance tuning
+- `?build_design_matrix` - Reference documentation for design matrix construction
+- `?adaptive_ridge_projector` - Details on adaptive regularization methods
+
+---
+
+```{r session-info}
+sessioninfo::session_info(pkgs = "attached")
+```

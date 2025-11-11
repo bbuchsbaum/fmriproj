@@ -1,35 +1,157 @@
 url: https://bbuchsbaum.github.io/fmriproj/
 template:
   bootstrap: 5
-
+  bslib:
+    bg: '#ffffff'
+    fg: '#111111'
+    primary: '#1f6feb'
+    secondary: '#6b7280'
+    base_font: system-ui
+    heading_font: system-ui
+    code_font: ui-monospace
+  package: albersdown
 development:
   mode: auto
-
 home:
   title: fmriproj - Projected Multivariate Pattern Analysis for fMRI Data
-  description: >
-    Implements projected multivariate pattern analysis (MVPA) for fMRI data.
-    This package provides a three-layer framework for analyzing fMRI data.
-
+  description: |
+    Direct MVPA from fMRI time-series data, bypassing traditional two-stage GLM approaches. Features adaptive ridge projection, HRF optimization, and seamless rMVPA integration.
 reference:
-- title: Design Matrix Construction
-  desc: Functions for building design matrices with HRF parameters
-- title: Ridge Projection
-  desc: Adaptive ridge projection for dimensionality reduction  
-- title: Beta Collapse
-  desc: Beta coefficient collapse strategies
-- title: Model Fitting and Prediction
-  desc: Functions for model fitting and prediction
-
+- title: High-Level User API
+  desc: |
+    Functions most users will need for running complete analyses.
+  contents:
+  - run_searchlight
+  - run_regional
+  - check_data_compatibility
+  - plot_searchlight_diagnostics
+- title: Core Projection Pipeline
+  desc: |
+    Low-level functions for building custom projection workflows.
+  contents:
+  - build_design_matrix
+  - build_projector
+  - adaptive_ridge_projector
+  - collapse_beta
+  - project_trials
+- title: Formula Interface
+  desc: |
+    Modern formula-based API for flexible analysis specification.
+  contents:
+  - project_trials_formula
+  - projection_spec_formula
+  - as_trialwise_design
+  - build_design_matrix_formula
+- title: rMVPA Integration
+  desc: |
+    Functions for transparent integration with the rMVPA package.
+  contents:
+  - make_rmvpa_searchlight_fun
+  - as_mvpa_dataset
+  - wrap_as_projecting_dataset
+  - wrap_as_chunked_projecting_dataset
+  - run_searchlight_projected
+  - recommend_chunk_size
+- title: Model Factory (Advanced)
+  desc: |
+    S3 generic system for creating projected models.
+  contents:
+  - create_projected_model
+  - model_spec
+  - create_mvpa_model_projected
+  - class.ProjectedDataSource
+- title: HRF Management
+  desc: |
+    HRF basis functions and optimization.
+  contents:
+  - optimize_hrf_mvpa
+  - optimize_joint_hrf_mvpa
+  - hrf_adapter
+  - hrf_basis_spmg3_theta
+- title: Diagnostics & Utilities
+  desc: |
+    Tools for understanding and validating projection results.
+  contents:
+  - combine_projection_diagnostics
+  - explain_projection_results
+  - plot_projection_diagnostics
+  - attach_projection_diagnostics
+  - make_diagnostic_searchlight_fun
+- title: Data Structures
+  desc: |
+    Core data classes and validators.
+  contents:
+  - fr_design_matrix
+  - fr_projector
+  - is.fr_design_matrix
+  - is.fr_projector
+  - is.projecting_dataset
+- title: Vignette Helpers
+  desc: |
+    Visual system for documentation (primarily for internal use).
+  contents:
+  - theme_albers
+  - scale_color_albers
+  - scale_fill_albers
+- title: S3 Methods
+  desc: |
+    Generic method implementations.
+  contents: has_concept("s3methods")
+  
+  # Catch-all to include any remaining exported topics not explicitly listed above
+- title: All Functions
+  desc: Auto-generated index of remaining topics
+  contents: starts_with("")
 navbar:
   structure:
-    left:  [intro, reference, articles, tutorials, news]
-    right: [search, github]
+    left:
+    - intro
+    - reference
+    - articles
+    - news
+    right:
+    - search
+    - github
   components:
     articles:
-      text: Articles
+      text: Documentation
       menu:
-      - text: Getting Started
-        href: articles/getting-started.html
+      - text: '---'
+      - text: Tutorials
+      - text: Getting Started with fmriproj
+        href: articles/getting-started-with-fmriproj.html
+      - text: '---'
+      - text: How-tos
+      - text: Common Analysis Workflows
+        href: articles/common-workflows.html
       - text: Running rMVPA on Time-Series
-        href: articles/running-rmvpa-time-series.html
+        href: articles/fmriproj-rmvpa-integration.html
+      - text: '---'
+      - text: Explanations
+      - text: Understanding fmriproj-rMVPA Integration
+        href: articles/fmriproj-rmvpa-integration.html
+      - text: '---'
+      - text: Advanced Topics
+      - text: Advanced Features and Optimization
+        href: articles/advanced-features.html
+articles:
+- title: Tutorials
+  desc: Learn by doing with complete end-to-end examples
+  contents: getting-started-with-fmriproj
+- title: How-tos
+  desc: Task-oriented recipes for common analyses
+  contents:
+  - common-workflows
+  - fmriproj-rmvpa-integration
+- title: Explanations
+  desc: Concepts, architecture, and design decisions
+  contents: fmriproj-rmvpa-integration
+- title: Advanced
+  desc: HRF optimization, performance tuning, and custom workflows
+  contents: advanced-features
+
+# Catch-all section to include any remaining exported topics
+# so pkgdown's reference index is complete.
+- title: All Functions
+  desc: Auto-generated index of remaining topics.
+  contents: starts_with("")

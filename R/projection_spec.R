@@ -21,7 +21,10 @@ projection_spec <- function(event_model,
                             lambda_adaptive_method = "none",
                             lambda_global = 0,
                             collapse_method = "rss",
-                            X_theta_dense = NULL) {
+                            X_theta_dense = NULL,
+                            align_sign = TRUE,
+                            sign_anchor = c("canonical", "data", "none")) {
+  sign_anchor <- match.arg(sign_anchor)
   structure(
     list(
       event_model = event_model,
@@ -31,7 +34,9 @@ projection_spec <- function(event_model,
       lambda_adaptive_method = lambda_adaptive_method,
       lambda_global = lambda_global,
       collapse_method = collapse_method,
-      X_theta_dense = X_theta_dense
+      X_theta_dense = X_theta_dense,
+      align_sign = align_sign,
+      sign_anchor = sign_anchor
     ),
     class = "projection_spec"
   )

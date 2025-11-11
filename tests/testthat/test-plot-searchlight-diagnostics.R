@@ -1,6 +1,8 @@
 context("plot_searchlight_diagnostics")
 
 test_that("plot_searchlight_diagnostics errors when ggplot2 is missing", {
+  skip_if(requireNamespace("ggplot2", quietly = TRUE),
+          "ggplot2 installed; cannot simulate missing dependency")
   results <- list(diagnostics = list(list(lambda_sl = 0.5, w_sl = c(1, 2))))
   expect_error(
     plot_searchlight_diagnostics(results, voxel = 1),

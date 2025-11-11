@@ -8,4 +8,7 @@
 library(testthat)
 library(fmriproj)
 
+# Enable testthat edition 3 for snapshot testing
+local_edition(3)
+
 test_check("fmriproj") 

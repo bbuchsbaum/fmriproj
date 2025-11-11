@@ -7,17 +7,17 @@
 #' @param lambda_global Non-negative ridge regularization parameter.
 #' @param diagnostics Logical; attach timing and condition number.
 #' @param pivot Logical; use fill-in reducing column pivoting (default TRUE).
+#' @param legacy_output Logical; if TRUE, returns legacy format with explicit
+#'   Qt matrix for backward compatibility. Default FALSE for memory efficiency.
 #'
-#' @return An object of class \code{fr_projector} containing \code{Qt},
-#'   \code{R}, \code{K_global}, and precomputed matrices \code{RtR} and
-#'   \code{tRQt}. When \code{lambda_global} is zero \code{K_global} is the
-#'   (pseudo-)inverse of \code{R} times \code{Qt}; otherwise ridge
-#'   regularization is applied. When \code{lambda_global} \code{>} 0, the
-#'   \code{RtR} component already has \code{lambda_global} added to its
-#'   diagonal.
+#' @return An object of class \code{fr_projector}. If \code{legacy_output = FALSE}
+#'   (default), contains \code{qr_obj}, \code{R}, and \code{RtR} for memory-efficient
+#'   computation. If \code{legacy_output = TRUE}, contains \code{Qt}, \code{R}, 
+#'   \code{K_global}, and precomputed matrices \code{RtR} and \code{tRQt} for 
+#'   backward compatibility.
 #' @export
 build_projector <- function(X_theta, lambda_global = 0, diagnostics = FALSE,
-                           pivot = TRUE) {
+                           pivot = TRUE, legacy_output = FALSE) {
   if (!inherits(X_theta, c("matrix", "Matrix"))) {
     stop("X_theta must be a matrix or Matrix")
   }
@@ -32,39 +32,95 @@ build_projector <- function(X_theta, lambda_global = 0, diagnostics = FALSE,
   start_time <- proc.time()["elapsed"]
 
   qr_obj <- Matrix::qr(X_theta, order = if (pivot) 3L else 0L)
-  Qt <- as.matrix(t(Matrix::qr.Q(qr_obj)))
-
+  
+  # Extract R (small p x p matrix, so OK to store)
   R <- as.matrix(Matrix::qr.R(qr_obj))
   RtR <- crossprod(R)
-  tRQt <- t(R) %*% Qt
-
+  
   cond_R <- 1 / Matrix::rcond(R)
   if (is.finite(cond_R) && cond_R > 1e6) {
     warning("High collinearity detected in design matrix: cond(R) > 1e6")
   }
-
-  if (lambda_global > 0) {
-    diag(RtR) <- diag(RtR) + lambda_global
-    cho <- chol(RtR)
-    K_global <- backsolve(cho, backsolve(cho, tRQt, transpose = TRUE))
-
-  } else {
-    K_global <- tryCatch(
-      backsolve(R, Qt, upper = TRUE),
-      error = function(e) MASS::ginv(R) %*% Qt
+  
+  if (legacy_output) {
+    # Extract Qt for backward compatibility
+    Qt <- as.matrix(t(Matrix::qr.Q(qr_obj)))
+    tRQt <- t(R) %*% Qt
+    
+    # Compute K_global if requested
+    K_global <- NULL
+    if (lambda_global == 0) {
+      # OLS case
+      # Prefer triangular solve when R is reasonably conditioned; fall back to ginv otherwise
+      R_for_solve <- R
+      # If a pivot is present (sparseQR), reorder columns of R back to original order for consistency
+      pivot_idx <- tryCatch(qr_obj@q + 1L, error = function(e) NULL)
+      if (!is.null(pivot_idx) && any(pivot_idx != seq_len(ncol(R_for_solve)))) {
+        R_for_solve <- R_for_solve[, order(pivot_idx), drop = FALSE]
+      }
+      if (is.finite(cond_R) && cond_R <= 1e6) {
+        K_global <- backsolve(R_for_solve, Qt, upper = TRUE)
+      } else {
+        K_global <- MASS::ginv(R) %*% Qt
+      }
+    } else {
+      # Ridge case
+      lhs <- RtR
+      diag(lhs) <- diag(lhs) + lambda_global
+      cho <- chol(lhs)
+      K_global <- backsolve(cho, backsolve(cho, tRQt, transpose = TRUE))
+    }
+    
+    build_time <- proc.time()["elapsed"] - start_time
+    diag_list <- NULL
+    if (diagnostics) {
+      dl <- list(cond_R = as.numeric(cond_R),
+                 lambda_global_used = lambda_global,
+                 build_time = build_time,
+                 qr_rank = if (inherits(qr_obj, "sparseQR")) ncol(R) else qr_obj$rank)
+      diag_list <- cap_diagnostics(dl)
+    }
+    
+    # Use legacy constructor
+    out <- fr_projector(
+      Qt = Qt,
+      R = R,
+      K_global = K_global,
+      RtR = RtR,
+      tRQt = tRQt,
+      lambda_global = lambda_global
     )
+    attr(out, "diagnostics") <- diag_list
+    return(out)
   }
-
+  
+  # Default: memory-efficient approach without Qt
   build_time <- proc.time()["elapsed"] - start_time
   diag_list <- NULL
   if (diagnostics) {
+    # Handle rank for both qr and sparseQR objects
+    qr_rank <- if (inherits(qr_obj, "sparseQR")) {
+      # For sparseQR, rank is the number of columns in R
+      ncol(R)
+    } else {
+      # Regular qr object has $rank
+      qr_obj$rank
+    }
+    
     dl <- list(cond_R = as.numeric(cond_R),
                lambda_global_used = lambda_global,
-               build_time = build_time)
+               build_time = build_time,
+               qr_rank = qr_rank)
     diag_list <- cap_diagnostics(dl)
   }
 
-  out <- fr_projector(Qt, R, K_global, RtR = RtR, tRQt = tRQt)
+  # Use new constructor style
+  out <- fr_projector(
+    qr_obj = qr_obj,
+    R = R,
+    RtR = RtR,
+    lambda_global = lambda_global
+  )
   attr(out, "diagnostics") <- diag_list
   out
 }

@@ -5,7 +5,7 @@ test_that("build_projector sparse QR works", {
   basis <- matrix(c(1,0,0,
                     0,1,0), nrow = 3, byrow = FALSE)
   X <- build_design_matrix(em, hrf_basis_matrix = basis)$X
-  proj <- build_projector(X, pivot = TRUE)
+  proj <- build_projector(X, legacy_output = TRUE, pivot = TRUE)
   qr_obj <- Matrix::qr(X)
   Qt_exp <- t(as.matrix(Matrix::qr.Q(qr_obj)))
   R_exp <- as.matrix(Matrix::qr.R(qr_obj))
@@ -26,7 +26,7 @@ test_that("build_projector can disable pivoting", {
   basis <- matrix(c(1,0,0,
                     0,1,0), nrow = 3, byrow = FALSE)
   X <- build_design_matrix(em, hrf_basis_matrix = basis)$X
-  proj <- build_projector(X, pivot = FALSE)
+  proj <- build_projector(X, legacy_output = TRUE, pivot = FALSE)
   # Use Matrix::qr for consistency with implementation
   qr_obj <- Matrix::qr(X, order = 0L)
   Qt_exp <- t(as.matrix(Matrix::qr.Q(qr_obj)))
@@ -41,7 +41,7 @@ test_that("build_projector applies ridge", {
                     0,1,0), nrow = 3, byrow = FALSE)
   X <- build_design_matrix(em, hrf_basis_matrix = basis)$X
   lambda <- 0.5
-  proj <- build_projector(X, lambda_global = lambda)
+  proj <- build_projector(X, legacy_output = TRUE, lambda_global = lambda)
 
   qr_obj <- Matrix::qr(X)
   Qt <- t(as.matrix(Matrix::qr.Q(qr_obj)))
@@ -60,7 +60,7 @@ test_that("lambda_global 0 returns OLS projector", {
   basis <- matrix(c(1,0,0,
                     0,1,0), nrow = 3, byrow = FALSE)
   X <- build_design_matrix(em, hrf_basis_matrix = basis)$X
-  proj <- build_projector(X, lambda_global = 0)
+  proj <- build_projector(X, legacy_output = TRUE, lambda_global = 0)
   qr_obj <- Matrix::qr(X)
   Qt <- t(as.matrix(Matrix::qr.Q(qr_obj)))
   R <- as.matrix(Matrix::qr.R(qr_obj))
@@ -78,7 +78,7 @@ test_that("build_projector ridge uses sparse diagonal", {
                     0,1,0), nrow = 3, byrow = FALSE)
   X <- build_design_matrix(em, hrf_basis_matrix = basis)$X
   lambda <- 0.5
-  proj <- build_projector(X, lambda_global = lambda)
+  proj <- build_projector(X, legacy_output = TRUE, lambda_global = lambda)
 
   qr_obj <- Matrix::qr(X)
   Qt <- t(as.matrix(Matrix::qr.Q(qr_obj)))
@@ -95,7 +95,7 @@ test_that("build_projector diagnostics", {
   em <- list(onsets = c(0L), n_time = 2L)
   basis <- matrix(1, nrow = 1, ncol = 1)
   X <- build_design_matrix(em, hrf_basis_matrix = basis)$X
-  proj <- build_projector(X, diagnostics = TRUE)
+  proj <- build_projector(X, legacy_output = TRUE, diagnostics = TRUE)
   diag <- attr(proj, "diagnostics")
   expect_true(!is.null(diag))
   cond_exp <- 1 / Matrix::rcond(proj$R)
@@ -104,13 +104,13 @@ test_that("build_projector diagnostics", {
 
 test_that("build_projector warns on high condition number", {
   X <- Matrix::Matrix(matrix(c(1,1,1,1), 2, 2), sparse = TRUE)
-  expect_warning(build_projector(X))
+  expect_warning(build_projector(X, legacy_output = TRUE))
 })
 
 
 test_that("build_projector uses ginv when R is singular", {
   X <- Matrix::Matrix(matrix(c(1,1,1,1), 2, 2), sparse = TRUE)
-  proj <- suppressWarnings(build_projector(X))
+  proj <- suppressWarnings(build_projector(X, legacy_output = TRUE))
   
   # For singular matrices, just verify the computation completes without error
   # and produces a matrix of correct dimensions
@@ -125,14 +125,14 @@ test_that("build_projector uses ginv when R is singular", {
 test_that("build_projector validates inputs", {
   expect_error(build_projector(list()), "X_theta must be")
   X <- matrix(1, nrow = 2, ncol = 2)
-  expect_error(build_projector(X, lambda_global = c(1, 2)),
+  expect_error(build_projector(X, legacy_output = TRUE, lambda_global = c(1, 2)),
                "lambda_global must be")
-  expect_error(build_projector(X, lambda_global = -1),
+  expect_error(build_projector(X, legacy_output = TRUE, lambda_global = -1),
                "lambda_global must be")
 
 })
 
 test_that("build_projector errors on NA values", {
   X <- matrix(c(1, NA, 0, 1), nrow = 2)
-  expect_error(build_projector(X), "X_theta must not contain missing values")
+  expect_error(build_projector(X, legacy_output = TRUE), "X_theta must not contain missing values")
 })

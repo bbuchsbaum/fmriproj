@@ -1,0 +1,458 @@
+---
+title: Common analysis workflows
+description: |
+  Task-oriented recipes for searchlight MVPA, ROI analysis, and RSA using fmriproj.
+output:
+  rmarkdown::html_vignette:
+    toc: yes
+    toc_depth: 2
+vignette: |
+  %\VignetteIndexEntry{Common analysis workflows} %\VignetteEngine{knitr::rmarkdown} %\VignetteEncoding{UTF-8}
+css: albers.css
+params:
+  family: red
+resource_files:
+- albers.css
+- albers.js
+includes:
+  in_header: |-
+    <script src="albers.js"></script>
+    <script>document.addEventListener('DOMContentLoaded',()=>document.body.classList.add('palette-red'));</script>
+
+---
+
+```{r setup, include=FALSE}
+if (requireNamespace("ggplot2", quietly = TRUE) && requireNamespace("albersdown", quietly = TRUE)) ggplot2::theme_set(albersdown::theme_albers(params$family))
+if (requireNamespace("ggplot2", quietly = TRUE) && requireNamespace("albersdown", quietly = TRUE)) ggplot2::theme_set(albersdown::theme_albers(params$family))
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment  = "#>",
+  fig.align = "center",
+  fig.retina = 2,
+  fig.width = 7,
+  fig.asp = 0.618,
+  out.width = "100%",
+  message = FALSE,
+  warning = FALSE
+)
+set.seed(123)
+options(pillar.sigfig = 7, width = 80)
+
+source("vignette_helpers.R")
+```
+
+## About this vignette {#about}
+
+This vignette provides copy-paste recipes for common fMRI MVPA analyses. Each recipe is complete and runnable.
+
+**Prerequisites**: You should have:
+
+- Read [Getting Started](getting-started-with-fmriproj.html) to understand basic concepts
+- Preprocessed fMRI data (or use our synthetic examples)
+- An event table with trial timing
+
+**Structure**: Each recipe follows the same format:
+
+1. **Goal**: What you want to accomplish
+2. **Code**: Complete, runnable example
+3. **Explanation**: Key steps and parameters
+4. **Troubleshooting**: Common issues and fixes
+
+## Recipe 1: Whole-brain searchlight classification {#searchlight}
+
+### Goal {#searchlight-goal}
+
+Run a searchlight MVPA analysis across the whole brain to find regions that classify experimental conditions above chance.
+
+### Code {#searchlight-code}
+
+```{r searchlight-example}
+library(fmriproj)
+library(fmridataset)
+
+if (requireNamespace("ggplot2", quietly = TRUE)) {
+  ggplot2::theme_set(theme_albers())
+}
+
+# Create synthetic searchlight data (you'd load your own)
+sl_data <- create_synthetic_searchlight_data(
+  dims = c(5, 5, 5),
+  n_timepoints = 150,
+  n_trials = 30,
+  TR = 2
+)
+
+# Create fmridataset
+dset <- fmridataset::matrix_dataset(
+  datamat = sl_data$Y,
+  TR = sl_data$TR,
+  run_length = ncol(sl_data$Y),
+  event_table = sl_data$event_table,
+  mask = sl_data$mask
+)
+
+# Run searchlight (projection happens automatically)
+results <- run_searchlight(
+  dataset = dset,
+  radius = 2,                    # Searchlight radius in voxels
+  y_formula = ~ condition,       # Label column
+  block_formula = ~ run,         # Cross-validation blocks
+  classifier = "sda_notune",     # rMVPA classifier
+  lambda_global = 0.1,           # Global ridge parameter
+  lambda_adaptive_method = "EB"  # Adaptive method
+)
+
+cat("Searchlight analysis complete!\n")
+cat("Mean accuracy:", round(mean(results$performance, na.rm = TRUE), 3), "\n")
+```
+
+### Explanation {#searchlight-explain}
+
+**Key parameters**:
+
+- `radius = 2`: Searchlight sphere radius. Larger = more smoothing, slower computation
+- `y_formula = ~ condition`: Which column in `event_table` contains labels
+- `block_formula = ~ run`: Which column defines cross-validation folds
+- `classifier = "sda_notune"`: rMVPA classifier (fast, no tuning)
+- `lambda_global = 0.1`: Starting point for ridge regularization
+- `lambda_adaptive_method = "EB"`: Empirical Bayes adaptive lambda
+
+**What happens**:
+
+1. For each voxel, fmriproj creates a searchlight sphere
+2. Projects time-series → trial patterns for those voxels only
+3. Trains classifier with cross-validation
+4. Returns accuracy map
+
+### Troubleshooting {#searchlight-trouble}
+
+**Issue**: Very low accuracy everywhere (near chance)
+
+- Check that `condition` column has correct labels
+- Verify `run` column properly separates scanning runs
+- Try stronger signal in synthetic data: `signal_strength = 1.0`
+
+**Issue**: NaN or NA values in results
+
+- Some searchlights may have no voxels (edge of brain)
+- Projection may fail if design matrix is rank-deficient
+- Check with `sum(is.na(results$performance))`
+
+## Recipe 2: ROI-based analysis {#roi}
+
+### Goal {#roi-goal}
+
+Analyze a specific region of interest (ROI) without whole-brain computation.
+
+### Code {#roi-code}
+
+```{r roi-example}
+# Create synthetic data
+roi_data <- create_synthetic_fmri(
+  n_voxels = 200,
+  n_timepoints = 200,
+  n_trials = 40,
+  n_conditions = 2,
+  TR = 2
+)
+
+# Create fmridataset
+dset_roi <- fmridataset::matrix_dataset(
+  datamat = roi_data$Y,
+  TR = roi_data$TR,
+  run_length = ncol(roi_data$Y),
+  event_table = roi_data$event_table
+)
+
+# Create ROI mask (first 50 voxels = "ROI")
+roi_mask <- rep(FALSE, nrow(roi_data$Y))
+roi_mask[1:50] <- TRUE
+
+# Run regional analysis
+roi_results <- run_regional(
+  dataset = dset_roi,
+  region_mask = roi_mask,
+  y_formula = ~ condition,
+  block_formula = ~ run,
+  classifier = "sda_notune"
+)
+
+cat("ROI accuracy:", round(roi_results$performance, 3), "\n")
+cat("Chance level:", round(1 / roi_data$n_conditions, 3), "\n")
+```
+
+### Explanation {#roi-explain}
+
+`run_regional()` is more efficient than searchlight when you have a predefined ROI:
+
+- Projects only the ROI voxels (not whole brain)
+- Single classification (not thousands of searchlights)
+- Returns accuracy + trained model + cross-validation details
+
+**ROI mask**: Logical vector where `TRUE` = include voxel in ROI
+
+### Troubleshooting {#roi-trouble}
+
+**Issue**: Accuracy is exactly at chance
+
+- ROI may not contain signal for this contrast
+- Try different ROI or check preprocessing
+- Verify ROI mask aligns with data dimensions
+
+**Issue**: Error about mask dimensions
+
+- Mask length must equal number of voxels
+- Check: `length(roi_mask) == nrow(bold_data)`
+
+## Recipe 3: Multi-run analysis {#multirun}
+
+### Goal {#multirun-goal}
+
+Analyze data from multiple scanning runs with proper cross-validation.
+
+### Code {#multirun-code}
+
+```{r multirun-example}
+# Create multi-run synthetic data
+run1_data <- create_synthetic_fmri(n_voxels = 100, n_timepoints = 120, n_trials = 20, TR = 2)
+run2_data <- create_synthetic_fmri(n_voxels = 100, n_timepoints = 120, n_trials = 20, TR = 2)
+
+# Combine runs (stack timepoints)
+Y_combined <- cbind(run1_data$Y, run2_data$Y)
+
+# Combine event tables with run labels
+events_run1 <- run1_data$event_table
+events_run1$run <- 1
+
+events_run2 <- run2_data$event_table
+# IMPORTANT: Onsets in run 2 are relative to run 2 start (reset to 0)
+events_run2$run <- 2
+
+events_combined <- rbind(events_run1, events_run2)
+
+# Create dataset
+dset_multirun <- fmridataset::matrix_dataset(
+  datamat = Y_combined,
+  TR = 2,
+  run_length = rep(120, 2),  # 120 timepoints per run
+  event_table = events_combined
+)
+
+# Run analysis
+multirun_results <- run_regional(
+  dataset = dset_multirun,
+  region_mask = rep(TRUE, nrow(Y_combined)),
+  y_formula = ~ condition,
+  block_formula = ~ run  # Cross-validation by run
+)
+
+cat("Multi-run accuracy:", round(multirun_results$performance, 3), "\n")
+cat("Number of CV folds:", length(unique(events_combined$run)), "\n")
+```
+
+### Explanation {#multirun-explain}
+
+**Critical**: Onsets must be **relative to each run's start**:
+
+```r
+# Correct:
+events_run2$onset <- c(10, 20, 30, ...)  # Relative to run 2 start
+
+# Incorrect:
+events_run2$onset <- c(250, 260, 270, ...)  # Absolute time
+```
+
+The `run` column serves two purposes:
+
+1. Tells fmriproj how to align onsets with timepoints
+2. Defines cross-validation folds (leave-one-run-out)
+
+### Troubleshooting {#multirun-trouble}
+
+**Issue**: Error about onset times exceeding run length
+
+- Onsets are probably absolute instead of relative
+- Each run's onsets should start near 0
+
+**Issue**: Poor cross-validation performance
+
+- Runs may have systematic differences (drift, attention)
+- Consider run-wise detrending before analysis
+
+## Recipe 4: Custom projection parameters {#custom-projection}
+
+### Goal {#custom-goal}
+
+Fine-tune projection settings for specific needs (e.g., different HRF, collapse method).
+
+### Code {#custom-code}
+
+```{r custom-example}
+library(fmrihrf)
+
+# Create data
+custom_data <- create_synthetic_fmri(
+  n_voxels = 150,
+  n_timepoints = 180,
+  n_trials = 36,
+  TR = 2
+)
+
+dset_custom <- fmridataset::matrix_dataset(
+  datamat = custom_data$Y,
+  TR = custom_data$TR,
+  run_length = ncol(custom_data$Y),
+  event_table = custom_data$event_table
+)
+
+# Run with custom parameters
+custom_results <- run_regional(
+  dataset = dset_custom,
+  region_mask = rep(TRUE, nrow(custom_data$Y)),
+  y_formula = ~ condition,
+  block_formula = ~ run,
+  classifier = "sda_notune",
+
+  # Projection customization
+  hrf_basis = "spmg3",             # 3-parameter canonical + derivatives
+  lambda_global = 0.2,              # Stronger regularization
+  lambda_adaptive_method = "CV",    # Cross-validation instead of EB
+  collapse_method = "pc"            # Principal component collapse
+)
+
+cat("Custom projection accuracy:", round(custom_results$performance, 3), "\n")
+```
+
+### Explanation {#custom-explain}
+
+**HRF basis options**:
+
+- `"spmg1"`: Single canonical HRF (fast, default)
+- `"spmg3"`: Canonical + temporal + dispersion derivatives (flexible)
+- Custom function: See `?create_hrf_basis_func`
+
+**Lambda selection methods**:
+
+- `"EB"`: Empirical Bayes (fast, recommended)
+- `"CV"`: Cross-validation (slower, more robust)
+- Fixed value: Just use `lambda_global` without adaptation
+
+**Collapse methods**:
+
+- `"rss"`: Root sum of squares (default, robust)
+- `"pc"`: First principal component (good for correlated bases)
+- `"optim"`: Optimize weights for classification (advanced, slow)
+
+### Troubleshooting {#custom-trouble}
+
+**Issue**: Much slower than default
+
+- Multi-basis HRFs (e.g., `spmg3`) create more columns
+- CV lambda selection runs inner cross-validation
+- Consider caching or parallel processing
+
+## Recipe 5: Saving and interpreting results {#results}
+
+### Goal {#results-goal}
+
+Extract, visualize, and save analysis results.
+
+### Code {#results-code}
+
+```{r results-example, eval=requireNamespace("ggplot2", quietly = TRUE)}
+library(ggplot2)
+
+# Run a simple analysis
+res_data <- create_synthetic_searchlight_data(dims = c(5, 5, 5), n_trials = 30)
+res_dset <- fmridataset::matrix_dataset(
+  datamat = res_data$Y,
+  TR = res_data$TR,
+  run_length = ncol(res_data$Y),
+  event_table = res_data$event_table,
+  mask = res_data$mask
+)
+
+res <- run_searchlight(
+  dataset = res_dset,
+  radius = 2,
+  y_formula = ~ condition,
+  block_formula = ~ run
+)
+
+# Extract performance metrics
+accuracy <- res$performance
+n_searchlights <- length(accuracy)
+n_above_chance <- sum(accuracy > 0.5, na.rm = TRUE)
+
+cat("Searchlights analyzed:", n_searchlights, "\n")
+cat("Above chance (>0.5):", n_above_chance, "\n")
+cat("Mean accuracy:", round(mean(accuracy, na.rm = TRUE), 3), "\n")
+cat("Max accuracy:", round(max(accuracy, na.rm = TRUE), 3), "\n")
+
+# Visualize distribution
+acc_df <- data.frame(
+  accuracy = accuracy[!is.na(accuracy)],
+  searchlight = seq_along(accuracy[!is.na(accuracy)])
+)
+
+ggplot(acc_df, aes(x = accuracy)) +
+  geom_histogram(bins = 30, fill = "#1f6feb", color = "#e5e7eb", alpha = 0.8) +
+  geom_vline(xintercept = 0.5, linetype = "dashed", color = "#d55e00", linewidth = 1) +
+  annotate("text", x = 0.5, y = Inf, label = "Chance",
+           vjust = 1.5, hjust = -0.1, color = "#d55e00") +
+  labs(
+    title = "Searchlight accuracy distribution",
+    subtitle = "Binary classification task",
+    x = "Accuracy",
+    y = "Count",
+    caption = "Dashed line = chance level (0.5)"
+  ) +
+  theme_albers()
+```
+
+### Explanation {#results-explain}
+
+**Result structure**:
+
+```r
+results <- list(
+  performance = numeric(),     # Accuracy per searchlight
+  predictor = ...,             # Trained model (if saved)
+  diagnostics = ...            # Optional projection diagnostics
+)
+```
+
+**Saving results** (with real data):
+
+```r
+# Save as RDS (R format)
+saveRDS(results, "searchlight_results.rds")
+
+# Convert to brain volume (with neuroim2)
+accuracy_vol <- neuroim2::NeuroVol(
+  results$performance,
+  space = neuroim2::NeuroSpace(dims = c(64, 64, 32))
+)
+neuroim2::write_vol(accuracy_vol, "accuracy_map.nii")
+```
+
+### Troubleshooting {#results-trouble}
+
+**Issue**: Can't convert results to volume
+
+- Results are 1D vector, need spatial template
+- Use original brain mask to map back to 3D
+
+## See also {#see-also}
+
+- [Getting Started](getting-started-with-fmriproj.html) - Core concepts and basic workflow
+- [Understanding fmriproj-rMVPA Integration](fmriproj-rmvpa-integration.html) - How S3 dispatch works
+- [Advanced Features](advanced-features.html) - HRF optimization and performance tuning
+- `?run_searchlight` - Full searchlight API
+- `?run_regional` - ROI analysis API
+
+---
+
+```{r session-info}
+sessioninfo::session_info(pkgs = "attached")
+```

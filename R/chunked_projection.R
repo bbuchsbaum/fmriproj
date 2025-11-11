@@ -19,13 +19,15 @@ wrap_as_chunked_projecting_dataset <- function(Y,
   # Determine data dimensions
   if (is.function(Y)) {
     # Y is a data accessor function (for file-based datasets)
-    test_chunk <- Y(indices = 1:min(10, original_dataset$nfeatures))
+    sample_n <- min(chunk_size, original_dataset$nfeatures)
+    test_chunk <- Y(indices = 1:sample_n)
     n_timepoints <- nrow(test_chunk)
     n_voxels <- original_dataset$nfeatures
     data_accessor <- Y
   } else if (is.matrix(Y) || inherits(Y, "Matrix")) {
     n_timepoints <- nrow(Y)
     n_voxels <- ncol(Y)
+    sample_n <- min(chunk_size, n_voxels)
     data_accessor <- function(indices = NULL) {
       if (is.null(indices)) Y else Y[, indices, drop = FALSE]
     }
@@ -34,7 +36,7 @@ wrap_as_chunked_projecting_dataset <- function(Y,
   }
   
   # Test projection to get expected output size
-  test_data <- data_accessor(indices = 1:min(10, n_voxels))
+  test_data <- data_accessor(indices = 1:sample_n)
   test_proj <- projection_fun(test_data)
   expected_trials <- nrow(test_proj)
   
@@ -43,6 +45,9 @@ wrap_as_chunked_projecting_dataset <- function(Y,
     new.env(parent = emptyenv())
   } else {
     NULL
+  }
+  if (!is.null(cache_env)) {
+    cache_env[["chunk_1"]] <- test_proj
   }
   
   structure(
@@ -192,7 +197,10 @@ recommend_chunk_size <- function(n_timepoints, n_voxels, n_trials,
 
 #' S3 methods for chunked_projecting_dataset
 #'
+#' @param x A chunked_projecting_dataset object
+#' @param ... Additional arguments (currently unused)
 #' @rdname chunked_projecting_dataset_methods
+#' @method print chunked_projecting_dataset
 #' @export
 print.chunked_projecting_dataset <- function(x, ...) {
   cat("Chunked Projecting Dataset (fmriproj)\n")

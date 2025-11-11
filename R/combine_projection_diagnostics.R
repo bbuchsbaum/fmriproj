@@ -11,17 +11,15 @@
 #'   a list of per-searchlight diagnostic entries.
 #' @export
 combine_projection_diagnostics <- function(x, y) {
-  diag_val <- cap_diagnostics(list(y$diag_data))
+  diag_entry <- cap_diagnostics(y$diag_data)
   if (is.null(x)) {
-    return(list(results = list(y),
-                diagnostics = list(diag_val)))
+    return(list(
+      results = list(y),
+      diagnostics = list(diag_entry)
+    ))
   }
 
   x$results[[length(x$results) + 1]] <- y
-  new_diag <- cap_diagnostics(list(y$diag_data))
-  if (!is.null(new_diag)) {
-    x$diagnostics[[length(x$diagnostics) + 1]] <- diag_val
-  }
-
+  x$diagnostics[[length(x$diagnostics) + 1]] <- diag_entry
   x
 }

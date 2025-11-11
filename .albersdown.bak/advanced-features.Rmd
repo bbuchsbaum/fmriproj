@@ -1,0 +1,581 @@
+---
+title: Advanced features and optimization
+description: |
+  HRF parameter optimization, progressive projection strategies, custom HRF bases, and performance tuning for large-scale analyses.
+output:
+  rmarkdown::html_vignette:
+    toc: yes
+    toc_depth: 2
+vignette: |
+  %\VignetteIndexEntry{Advanced features and optimization} %\VignetteEngine{knitr::rmarkdown} %\VignetteEncoding{UTF-8}
+css: albers.css
+params:
+  family: red
+resource_files:
+- albers.css
+- albers.js
+includes:
+  in_header: |-
+    <script src="albers.js"></script>
+    <script>document.addEventListener('DOMContentLoaded',()=>document.body.classList.add('palette-red'));</script>
+
+---
+
+```{r setup, include=FALSE}
+if (requireNamespace("ggplot2", quietly = TRUE) && requireNamespace("albersdown", quietly = TRUE)) ggplot2::theme_set(albersdown::theme_albers(params$family))
+if (requireNamespace("ggplot2", quietly = TRUE) && requireNamespace("albersdown", quietly = TRUE)) ggplot2::theme_set(albersdown::theme_albers(params$family))
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment  = "#>",
+  fig.align = "center",
+  fig.retina = 2,
+  fig.width = 7,
+  fig.asp = 0.618,
+  out.width = "100%",
+  message = FALSE,
+  warning = FALSE,
+  cache = TRUE  # Cache slow computations
+)
+set.seed(123)
+options(pillar.sigfig = 7, width = 80)
+
+source("vignette_helpers.R")
+```
+
+## Overview {#overview}
+
+This vignette covers advanced fmriproj features for users who need:
+
+- **HRF optimization**: Find HRF parameters that maximize classification
+- **Custom HRF bases**: Define domain-specific hemodynamic models
+- **Progressive projection**: Iterative refinement strategies
+- **Memory management**: Handle large datasets efficiently
+- **Performance tuning**: Parallelize and optimize for speed
+
+**Prerequisites**: You should be comfortable with:
+
+- Basic projection workflow from [Getting Started](getting-started-with-fmriproj.html)
+- Common analysis patterns from [Common Workflows](common-workflows.html)
+- fMRI signal modeling (HRF, design matrices)
+
+## HRF parameter optimization {#hrf-optimization}
+
+### The problem {#hrf-problem}
+
+The hemodynamic response function (HRF) varies across brain regions, subjects, and tasks. Using a fixed canonical HRF may be suboptimal. Can we find HRF parameters that maximize classification accuracy?
+
+### Approach {#hrf-approach}
+
+fmriproj provides `optimize_hrf_mvpa()` to search HRF parameter space:
+
+```{r hrf-optimization-demo, cache=TRUE}
+library(fmriproj)
+library(fmrihrf)
+
+# Create synthetic data with non-canonical HRF
+opt_data <- create_synthetic_fmri(
+  n_voxels = 100,
+  n_timepoints = 200,
+  n_trials = 40,
+  n_conditions = 2,
+  TR = 2,
+  signal_strength = 0.8
+)
+
+# Define HRF basis function factory
+# SPMG3 uses 3 parameters: peak time, undershoot, peak-to-undershoot ratio
+hrf_basis_func <- create_hrf_basis_func(
+  basis_name = "spmg3",
+  TR = opt_data$TR
+)
+
+# Initial parameter guess (canonical values)
+theta_init <- c(6, 16, 6)  # Peak time, undershoot time, ratio
+
+# Define inner cross-validation objective
+# This function takes theta and returns classification accuracy
+inner_cv_fn <- function(theta) {
+  # Create HRF with these parameters
+  hrf_func <- hrf_basis_func(theta)
+
+  # Create event model
+  emodel <- fmridesign::event_model(
+    onset = opt_data$event_table$onset,
+    duration = opt_data$event_table$duration,
+    run = opt_data$event_table$run,
+    hrf = hrf_func
+  )
+
+  # Build design and project
+  design <- build_design_matrix(
+    event_model = emodel,
+    TR = opt_data$TR,
+    n_time = ncol(opt_data$Y)
+  )
+
+  projector <- build_projector(
+    X = design$X,
+    lambda_global = 0.1
+  )
+
+  projection <- adaptive_ridge_projector(
+    Y_sl = opt_data$Y,
+    Q_sl = projector$Q_sl,
+    R_sl = projector$R_sl,
+    lambda_global = 0.1
+  )
+
+  patterns <- collapse_beta(
+    Z_sl_raw = projection$Z_sl_raw,
+    N_trials = opt_data$n_trials,
+    method = "rss"
+  )
+
+  # Simple cross-validation (leave-one-out for speed)
+  # In practice, use proper k-fold CV
+  accuracies <- numeric(opt_data$n_trials)
+  for (i in 1:opt_data$n_trials) {
+    train_data <- patterns$beta[-i, , drop = FALSE]
+    test_data <- patterns$beta[i, , drop = FALSE]
+    train_labels <- opt_data$event_table$condition[-i]
+    test_label <- opt_data$event_table$condition[i]
+
+    # Trivial classifier: mean pattern per condition
+    cond_means <- lapply(split(1:nrow(train_data), train_labels), function(idx) {
+      colMeans(train_data[idx, , drop = FALSE])
+    })
+
+    # Classify test by nearest mean
+    dists <- sapply(cond_means, function(mu) sqrt(sum((test_data - mu)^2)))
+    predicted <- names(which.min(dists))
+    accuracies[i] <- as.numeric(predicted == test_label)
+  }
+
+  mean(accuracies)
+}
+
+# Test initial parameters
+cat("Accuracy with canonical HRF:", round(inner_cv_fn(theta_init), 3), "\n")
+```
+
+> **Note**: Full HRF optimization is slow (nested cross-validation). For demonstration, we show the setup. In practice, use `optimize_hrf_mvpa()` with proper settings.
+
+### When to optimize HRF {#when-hrf}
+
+**Consider optimization when**:
+
+- You have strong a priori reason to expect non-canonical HRF
+- Sample size is large (>100 trials for stable estimates)
+- Classification performance with canonical HRF is disappointing
+- You're working with special populations (children, elderly, patients)
+
+**Skip optimization when**:
+
+- Sample size is small (<50 trials)
+- Canonical HRF performs well
+- Computation time is critical
+
+## Custom HRF basis functions {#custom-hrf}
+
+### Creating custom HRF {#custom-create}
+
+You can define your own HRF shape:
+
+```{r custom-hrf}
+# Example: Square wave (box-car) response
+custom_boxcar_hrf <- function(duration_trs = 3) {
+  function(t) {
+    ifelse(t >= 0 & t < duration_trs, 1, 0)
+  }
+}
+
+# Use it
+boxcar_hrf <- custom_boxcar_hrf(duration_trs = 4)
+
+# Visualize
+times <- seq(0, 20, by = 0.1)
+hrf_values <- sapply(times, boxcar_hrf)
+
+if (requireNamespace("ggplot2", quietly = TRUE)) {
+  library(ggplot2)
+
+  hrf_df <- data.frame(
+    time = times,
+    amplitude = hrf_values
+  )
+
+  ggplot(hrf_df, aes(time, amplitude)) +
+    geom_line(color = "#1f6feb", linewidth = 1.2) +
+    labs(
+      title = "Custom box-car HRF",
+      subtitle = "4-TR duration square wave",
+      x = "Time (TRs)",
+      y = "Amplitude"
+    ) +
+    theme_albers()
+}
+```
+
+### Multi-basis HRF {#multi-basis}
+
+For flexible modeling, use multiple basis functions:
+
+```{r multi-basis-hrf}
+# SPMG3: Canonical + temporal derivative + dispersion derivative
+spmg3_basis <- list(
+  canonical = hrf_spmg1,
+  temporal_deriv = function(t) {
+    # Temporal derivative
+    dt <- 0.01
+    (hrf_spmg1(t + dt) - hrf_spmg1(t - dt)) / (2 * dt)
+  },
+  dispersion_deriv = function(t) {
+    # Dispersion derivative (simplified)
+    hrf_spmg1(t * 1.1) - hrf_spmg1(t * 0.9)
+  }
+)
+
+# Use with event model
+emodel_multibasis <- fmridesign::event_model(
+  onset = opt_data$event_table$onset,
+  duration = opt_data$event_table$duration,
+  hrf = spmg3_basis  # List of basis functions
+)
+```
+
+With multi-basis HRF, collapse method matters:
+
+- `collapse_method = "rss"`: Robust, treats all bases equally
+- `collapse_method = "pc"`: First principal component (good for correlated bases)
+- `collapse_method = "optim"`: Optimize weights for classification
+
+## Progressive projection {#progressive}
+
+### The concept {#progressive-concept}
+
+Instead of projecting once with fixed parameters, iteratively refine:
+
+1. Project with initial parameters
+2. Train classifier, evaluate performance
+3. Update parameters based on performance
+4. Repeat until convergence
+
+### Example: Adaptive lambda tuning {#progressive-lambda}
+
+```{r progressive-lambda, cache=TRUE}
+# Progressive lambda optimization
+progressive_optimize <- function(Y, event_table, TR, max_iter = 5) {
+  lambda_history <- numeric(max_iter)
+  accuracy_history <- numeric(max_iter)
+
+  lambda_current <- 0.1  # Initial guess
+
+  for (iter in 1:max_iter) {
+    # Create event model
+    emodel <- fmridesign::event_model(
+      onset = event_table$onset,
+      duration = event_table$duration,
+      run = event_table$run,
+      hrf = fmrihrf::hrf_spmg1
+    )
+
+    # Build design
+    design <- build_design_matrix(
+      event_model = emodel,
+      TR = TR,
+      n_time = ncol(Y)
+    )
+
+    # Project with current lambda
+    projector <- build_projector(
+      X = design$X,
+      lambda_global = lambda_current
+    )
+
+    projection <- adaptive_ridge_projector(
+      Y_sl = Y,
+      Q_sl = projector$Q_sl,
+      R_sl = projector$R_sl,
+      lambda_global = lambda_current,
+      lambda_adaptive_method = "EB"
+    )
+
+    patterns <- collapse_beta(
+      Z_sl_raw = projection$Z_sl_raw,
+      N_trials = nrow(event_table),
+      method = "rss"
+    )
+
+    # Evaluate (simplified - use proper CV in practice)
+    accuracy <- 0.5 + rnorm(1, sd = 0.05)  # Placeholder
+
+    lambda_history[iter] <- lambda_current
+    accuracy_history[iter] <- accuracy
+
+    # Update lambda based on performance (simplified)
+    if (iter > 1 && accuracy_history[iter] < accuracy_history[iter - 1]) {
+      lambda_current <- lambda_current * 1.5  # Increase if performance drops
+    } else {
+      lambda_current <- lambda_current * 0.9  # Decrease if improving
+    }
+
+    cat("Iteration", iter, ": lambda =", round(lambda_current, 4),
+        ", accuracy =", round(accuracy, 3), "\n")
+  }
+
+  list(
+    lambda_history = lambda_history,
+    accuracy_history = accuracy_history,
+    final_lambda = lambda_current
+  )
+}
+
+# Run progressive optimization
+prog_result <- progressive_optimize(
+  Y = opt_data$Y,
+  event_table = opt_data$event_table,
+  TR = opt_data$TR,
+  max_iter = 3  # Just a few iterations for demo
+)
+```
+
+## Memory management for large datasets {#memory}
+
+### Chunked projection {#chunking}
+
+For datasets with many voxels, use chunking:
+
+```{r chunking-demo, eval=FALSE}
+# Create large dataset (hypothetical)
+large_Y <- matrix(rnorm(50000 * 300), nrow = 50000, ncol = 300)
+# 50,000 voxels × 300 timepoints
+
+# Recommendation system
+chunk_recommendation <- recommend_chunk_size(
+  n_voxels = nrow(large_Y),
+  n_timepoints = ncol(large_Y),
+  n_trials = 60,
+  available_memory_gb = 16  # 16 GB RAM available
+)
+
+cat("Recommended chunk size:", chunk_recommendation, "voxels\n")
+
+# Use chunked wrapping
+wrapped_chunked <- wrap_as_chunked_projecting_dataset(
+  Y = large_Y,
+  projection_spec = proj_spec,
+  mask = brain_mask,
+  chunk_size = chunk_recommendation
+)
+```
+
+### Monitoring memory usage {#memory-monitor}
+
+```{r memory-monitoring, eval=FALSE}
+# Check current memory
+gc()  # Garbage collection
+
+# Profile memory during analysis
+profvis::profvis({
+  results <- run_searchlight(
+    dataset = large_dataset,
+    radius = 3,
+    y_formula = ~ condition
+  )
+})
+```
+
+## Performance tuning {#performance}
+
+### Parallelization {#parallel}
+
+fmriproj supports parallel processing via `foreach`:
+
+```{r parallel-setup, eval=FALSE}
+library(doParallel)
+
+# Set up parallel backend
+n_cores <- parallel::detectCores() - 1  # Leave one core free
+cl <- makeCluster(n_cores)
+registerDoParallel(cl)
+
+# Run searchlight in parallel
+results_parallel <- run_searchlight(
+  dataset = dset,
+  radius = 3,
+  y_formula = ~ condition,
+  block_formula = ~ run,
+  parallel = TRUE  # Enable parallelization
+)
+
+# Clean up
+stopCluster(cl)
+```
+
+### Caching strategies {#caching}
+
+For repeated analyses, cache intermediate results:
+
+```{r caching-strategy, eval=FALSE}
+# Cache design matrix (doesn't change across analyses)
+design_cache_file <- "cached_design.rds"
+
+if (file.exists(design_cache_file)) {
+  design <- readRDS(design_cache_file)
+} else {
+  design <- build_design_matrix(
+    event_model = emodel,
+    TR = TR,
+    n_time = n_time
+  )
+  saveRDS(design, design_cache_file)
+}
+```
+
+### Profiling bottlenecks {#profiling}
+
+Identify slow parts of your analysis:
+
+```{r profiling, eval=FALSE}
+library(profvis)
+
+profvis({
+  # Your analysis here
+  results <- run_searchlight(
+    dataset = dset,
+    radius = 3,
+    y_formula = ~ condition
+  )
+})
+```
+
+Common bottlenecks:
+
+1. **Design matrix construction**: Cache if event model is fixed
+2. **QR decomposition**: Pre-compute projector for fixed designs
+3. **Adaptive lambda**: Use `"EB"` instead of `"CV"` for speed
+4. **Collapse step**: `"rss"` is faster than `"optim"`
+
+## Diagnostic tools {#diagnostics}
+
+### Projection quality metrics {#quality-metrics}
+
+```{r diagnostics-demo, cache=TRUE}
+# Run with diagnostics enabled
+diag_data <- create_synthetic_fmri(n_voxels = 80, n_trials = 30)
+
+emodel_diag <- fmridesign::event_model(
+  onset = diag_data$event_table$onset,
+  duration = diag_data$event_table$duration,
+  run = diag_data$event_table$run,
+  hrf = fmrihrf::hrf_spmg1
+)
+
+design_diag <- build_design_matrix(
+  event_model = emodel_diag,
+  TR = diag_data$TR,
+  n_time = ncol(diag_data$Y)
+)
+
+projector_diag <- build_projector(
+  X = design_diag$X,
+  lambda_global = 0.1
+)
+
+projection_diag <- adaptive_ridge_projector(
+  Y_sl = diag_data$Y,
+  Q_sl = projector_diag$Q_sl,
+  R_sl = projector_diag$R_sl,
+  lambda_global = 0.1,
+  lambda_adaptive_method = "EB"
+)
+
+# Inspect diagnostics
+cat("Adaptive lambda:", round(projection_diag$lambda_adaptive, 4), "\n")
+cat("Residual variance:", round(projection_diag$residual_variance, 4), "\n")
+cat("Effective degrees of freedom:", round(projection_diag$effective_df, 2), "\n")
+```
+
+**Quality indicators**:
+
+- `residual_variance < 0.7`: Good fit
+- `0.7 ≤ residual_variance < 0.9`: Acceptable
+- `residual_variance ≥ 0.9`: Poor projection, consider:
+  - Increasing lambda
+  - Using more flexible HRF
+  - Checking data quality
+
+### Visualizing projection diagnostics {#viz-diagnostics}
+
+```{r viz-diagnostics, eval=FALSE}
+# With actual searchlight results
+plot_projection_diagnostics(
+  searchlight_results,
+  diagnostic_type = "lambda_map"
+)
+
+plot_projection_diagnostics(
+  searchlight_results,
+  diagnostic_type = "residual_variance"
+)
+```
+
+## Tips and best practices {#tips}
+
+### 1. Start simple, then optimize
+
+```r
+# First: Use defaults
+results_default <- run_searchlight(dset, radius = 3, y_formula = ~ condition)
+
+# If unsatisfactory: Try multi-basis HRF
+results_multibasis <- run_searchlight(dset, hrf_basis = "spmg3", ...)
+
+# If still poor: Optimize HRF parameters
+results_optimized <- optimize_hrf_mvpa(...)
+```
+
+### 2. Choose collapse method wisely
+
+- **Start with `"rss"`**: Robust, fast
+- **Use `"pc"`** if HRF bases are highly correlated
+- **Consider `"optim"`** only if you have >100 trials and time to spare
+
+### 3. Balance regularization
+
+- Too little lambda → overfitting, noisy patterns
+- Too much lambda → underfitting, loss of signal
+- Let adaptive methods find the sweet spot
+
+### 4. Validate with held-out data
+
+Don't trust inner CV alone—use proper test set:
+
+```r
+# Split data
+train_runs <- 1:4
+test_runs <- 5:6
+
+train_dset <- subset_dataset(dset, runs = train_runs)
+test_dset <- subset_dataset(dset, runs = test_runs)
+
+# Train
+model <- train_on(train_dset)
+
+# Test
+test_performance <- evaluate_on(model, test_dset)
+```
+
+## See also {#see-also}
+
+- [Getting Started](getting-started-with-fmriproj.html) - Basic concepts
+- [Common Workflows](common-workflows.html) - Standard recipes
+- [Understanding fmriproj-rMVPA Integration](fmriproj-rmvpa-integration.html) - Integration details
+- `?optimize_hrf_mvpa` - HRF optimization API
+- `?create_hrf_basis_func` - Custom HRF documentation
+
+---
+
+```{r session-info}
+sessioninfo::session_info(pkgs = "attached")
+```

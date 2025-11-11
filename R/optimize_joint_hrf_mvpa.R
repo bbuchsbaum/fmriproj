@@ -140,16 +140,21 @@ optimize_hrf_mvpa <- function(theta_init,
   }
 
   grad_fn <- NULL
+  gradient_methods <- c("BFGS", "CG", "L-BFGS-B")
   if (use_fd_grad) {
-    grad_fn <- function(th) {
-      eps <- 1e-6
-      base_loss <- loss_fn_theta(th, record = FALSE)
-      sapply(seq_along(th), function(i) {
-        th_eps <- th
-        th_eps[i] <- th_eps[i] + eps
-        (loss_fn_theta(th_eps, record = FALSE) -
-           loss_fn_theta(th, record = FALSE)) / eps
-      })
+    if (optim_method %in% gradient_methods) {
+      grad_fn <- function(th) {
+        eps <- 1e-6
+        base_loss <- loss_fn_theta(th, record = FALSE)
+        sapply(seq_along(th), function(i) {
+          th_eps <- th
+          th_eps[i] <- th_eps[i] + eps
+          (loss_fn_theta(th_eps, record = FALSE) - base_loss) / eps
+        })
+      }
+    } else {
+      warning("gradients set to NULL; method '", optim_method,
+              "' ignores supplied gradients.")
     }
   }
 
@@ -173,6 +178,13 @@ optimize_hrf_mvpa <- function(theta_init,
   if (bounds_finite && optim_method %in% c("L-BFGS-B", "Brent")) {
     optim_args$lower <- lower
     optim_args$upper <- upper
+  }
+
+  if (identical(optim_method, "Nelder-Mead")) {
+    current_control <- optim_args$control
+    if (is.null(current_control)) current_control <- list()
+    current_control$warn.1d.NelderMead <- FALSE
+    optim_args$control <- current_control
   }
 
   optim_res <- do.call(stats::optim, optim_args)

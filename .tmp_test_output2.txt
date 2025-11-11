@@ -1,0 +1,720 @@
+> library(devtools)
+> res <- devtools::test()
+✔ | F W  S  OK | Context
+
+⠏ |          0 | adaptive-collapse                                              
+⠏ |          0 | adaptive_ridge_projector and collapse_beta                     
+⠼ |   2     13 | adaptive_ridge_projector and collapse_beta                     
+✔ |   4     47 | adaptive_ridge_projector and collapse_beta
+────────────────────────────────────────────────────────────────────────────────
+Warning ('test-adaptive-collapse.R:10:3'): adaptive_ridge_projector with method none works
+K_sl computation for diagnostics is not supported with qr_obj representation. Consider using diagnostics = FALSE for memory efficiency.
+Backtrace:
+    ▆
+ 1. └─fmriproj::adaptive_ridge_projector(...) at test-adaptive-collapse.R:10:3
+
+Warning ('test-adaptive-collapse.R:43:3'): adaptive_ridge_projector EB works
+K_sl computation for diagnostics is not supported with qr_obj representation. Consider using diagnostics = FALSE for memory efficiency.
+Backtrace:
+    ▆
+ 1. └─fmriproj::adaptive_ridge_projector(...) at test-adaptive-collapse.R:43:3
+
+Warning ('test-adaptive-collapse.R:74:3'): adaptive_ridge_projector LOOcv_local works
+K_sl computation for diagnostics is not supported with qr_obj representation. Consider using diagnostics = FALSE for memory efficiency.
+Backtrace:
+    ▆
+ 1. └─fmriproj::adaptive_ridge_projector(...) at test-adaptive-collapse.R:74:3
+
+Warning ('test-adaptive-collapse.R:96:3'): adaptive_ridge_projector works without precomputed matrices
+The 'Qt', 'tRQt', 'K_global' arguments for fr_projector are deprecated. Use 'qr_obj', 'R', 'RtR' instead.
+Backtrace:
+    ▆
+ 1. └─fmriproj::build_projector(X, legacy_output = TRUE) at test-adaptive-collapse.R:96:3
+ 2.   └─fmriproj::fr_projector(...) at fmriproj/R/build_projector.R:85:5
+────────────────────────────────────────────────────────────────────────────────
+
+⠏ |          0 | additional-lacunae                                             
+✔ |         20 | additional-lacunae
+
+⠏ |          0 | build-projector                                                
+⠏ |          0 | build_projector                                                
+✔ |   6     21 | build_projector
+────────────────────────────────────────────────────────────────────────────────
+Warning ('test-build-projector.R:8:3'): build_projector sparse QR works
+The 'Qt', 'tRQt', 'K_global' arguments for fr_projector are deprecated. Use 'qr_obj', 'R', 'RtR' instead.
+Backtrace:
+    ▆
+ 1. └─fmriproj::build_projector(X, legacy_output = TRUE, pivot = TRUE) at test-build-projector.R:8:3
+ 2.   └─fmriproj::fr_projector(...) at fmriproj/R/build_projector.R:85:5
+
+Warning ('test-build-projector.R:29:3'): build_projector can disable pivoting
+The 'Qt', 'tRQt', 'K_global' arguments for fr_projector are deprecated. Use 'qr_obj', 'R', 'RtR' instead.
+Backtrace:
+    ▆
+ 1. └─fmriproj::build_projector(X, legacy_output = TRUE, pivot = FALSE) at test-build-projector.R:29:3
+ 2.   └─fmriproj::fr_projector(...) at fmriproj/R/build_projector.R:85:5
+
+Warning ('test-build-projector.R:44:3'): build_projector applies ridge
+The 'Qt', 'tRQt', 'K_global' arguments for fr_projector are deprecated. Use 'qr_obj', 'R', 'RtR' instead.
+Backtrace:
+    ▆
+ 1. └─fmriproj::build_projector(X, legacy_output = TRUE, lambda_global = lambda) at test-build-projector.R:44:3
+ 2.   └─fmriproj::fr_projector(...) at fmriproj/R/build_projector.R:85:5
+
+Warning ('test-build-projector.R:63:3'): lambda_global 0 returns OLS projector
+The 'Qt', 'tRQt', 'K_global' arguments for fr_projector are deprecated. Use 'qr_obj', 'R', 'RtR' instead.
+Backtrace:
+    ▆
+ 1. └─fmriproj::build_projector(X, legacy_output = TRUE, lambda_global = 0) at test-build-projector.R:63:3
+ 2.   └─fmriproj::fr_projector(...) at fmriproj/R/build_projector.R:85:5
+
+Warning ('test-build-projector.R:81:3'): build_projector ridge uses sparse diagonal
+The 'Qt', 'tRQt', 'K_global' arguments for fr_projector are deprecated. Use 'qr_obj', 'R', 'RtR' instead.
+Backtrace:
+    ▆
+ 1. └─fmriproj::build_projector(X, legacy_output = TRUE, lambda_global = lambda) at test-build-projector.R:81:3
+ 2.   └─fmriproj::fr_projector(...) at fmriproj/R/build_projector.R:85:5
+
+Warning ('test-build-projector.R:98:3'): build_projector diagnostics
+The 'Qt', 'tRQt', 'K_global' arguments for fr_projector are deprecated. Use 'qr_obj', 'R', 'RtR' instead.
+Backtrace:
+    ▆
+ 1. └─fmriproj::build_projector(X, legacy_output = TRUE, diagnostics = TRUE) at test-build-projector.R:98:3
+ 2.   └─fmriproj::fr_projector(...) at fmriproj/R/build_projector.R:85:5
+────────────────────────────────────────────────────────────────────────────────
+
+⠏ |          0 | cached-optim                                                   
+✔ |          8 | cached-optim
+
+⠏ |          0 | cap-diagnostics                                                
+⠏ |          0 | cap_diagnostics                                                
+✔ |          2 | cap_diagnostics
+
+⠏ |          0 | central-diff                                                   
+⠏ |          0 | central_diff                                                   
+✔ |          2 | central_diff
+
+⠏ |          0 | check-data-compatibility                                       
+⠏ |          0 | check_data_compatibility                                       
+✔ |   4      6 | check_data_compatibility
+────────────────────────────────────────────────────────────────────────────────
+Warning ('test-check-data-compatibility.R:36:3'): quiet suppresses messages
+Very few voxels - is this an ROI analysis?
+Backtrace:
+    ▆
+ 1. ├─testthat::expect_message(...) at test-check-data-compatibility.R:36:3
+ 2. │ └─testthat:::quasi_capture(enquo(object), label, capture_messages)
+ 3. │   ├─testthat (local) .capture(...)
+ 4. │   │ └─base::withCallingHandlers(...)
+ 5. │   └─rlang::eval_bare(quo_get_expr(.quo), quo_get_env(.quo))
+ 6. └─fmriproj::check_data_compatibility(Y, em, quiet = FALSE)
+
+Warning ('test-check-data-compatibility.R:36:3'): quiet suppresses messages
+'project_trials' is deprecated.
+Use 'run_regional' instead.
+See help("Deprecated")
+Backtrace:
+     ▆
+  1. ├─testthat::expect_message(...) at test-check-data-compatibility.R:36:3
+  2. │ └─testthat:::quasi_capture(enquo(object), label, capture_messages)
+  3. │   ├─testthat (local) .capture(...)
+  4. │   │ └─base::withCallingHandlers(...)
+  5. │   └─rlang::eval_bare(quo_get_expr(.quo), quo_get_env(.quo))
+  6. └─fmriproj::check_data_compatibility(Y, em, quiet = FALSE)
+  7.   ├─base::tryCatch(...) at fmriproj/R/user_friendly_wrappers.R:302:3
+  8.   │ └─base (local) tryCatchList(expr, classes, parentenv, handlers)
+  9.   │   └─base (local) tryCatchOne(expr, names, parentenv, handlers[[1L]])
+ 10.   │     └─base (local) doTryCatch(return(expr), name, parentenv, handler)
+ 11.   └─fmriproj::project_trials(...) at fmriproj/R/user_friendly_wrappers.R:303:5
+ 12.     └─base::.Deprecated("run_regional") at fmriproj/R/user_friendly_wrappers.R:41:3
+
+Warning ('test-check-data-compatibility.R:37:3'): quiet suppresses messages
+Very few voxels - is this an ROI analysis?
+Backtrace:
+    ▆
+ 1. ├─testthat::expect_message(...) at test-check-data-compatibility.R:37:3
+ 2. │ └─testthat:::quasi_capture(enquo(object), label, capture_messages)
+ 3. │   ├─testthat (local) .capture(...)
+ 4. │   │ └─base::withCallingHandlers(...)
+ 5. │   └─rlang::eval_bare(quo_get_expr(.quo), quo_get_env(.quo))
+ 6. └─fmriproj::check_data_compatibility(Y, em, quiet = TRUE)
+
+Warning ('test-check-data-compatibility.R:37:3'): quiet suppresses messages
+'project_trials' is deprecated.
+Use 'run_regional' instead.
+See help("Deprecated")
+Backtrace:
+     ▆
+  1. ├─testthat::expect_message(...) at test-check-data-compatibility.R:37:3
+  2. │ └─testthat:::quasi_capture(enquo(object), label, capture_messages)
+  3. │   ├─testthat (local) .capture(...)
+  4. │   │ └─base::withCallingHandlers(...)
+  5. │   └─rlang::eval_bare(quo_get_expr(.quo), quo_get_env(.quo))
+  6. └─fmriproj::check_data_compatibility(Y, em, quiet = TRUE)
+  7.   ├─base::tryCatch(...) at fmriproj/R/user_friendly_wrappers.R:302:3
+  8.   │ └─base (local) tryCatchList(expr, classes, parentenv, handlers)
+  9.   │   └─base (local) tryCatchOne(expr, names, parentenv, handlers[[1L]])
+ 10.   │     └─base (local) doTryCatch(return(expr), name, parentenv, handler)
+ 11.   └─fmriproj::project_trials(...) at fmriproj/R/user_friendly_wrappers.R:303:5
+ 12.     └─base::.Deprecated("run_regional") at fmriproj/R/user_friendly_wrappers.R:41:3
+────────────────────────────────────────────────────────────────────────────────
+
+⠏ |          0 | chunked-projection                                             
+⠏ |          0 | chunked projection dataset                                     
+✔ |          6 | chunked projection dataset
+
+⠏ |          0 | class-checkers                                                 
+⠏ |          0 | class checking helpers                                         
+✔ |          4 | class checking helpers
+
+⠏ |          0 | collapse-optimization                                          
+ RSS accuracy: 0.475 
+
+ PC accuracy: 0.625 
+
+ Optimized accuracy: 0.65 
+
+Learned weights:
+RSS (implicit): equal weighting
+PC weights: 0.824 0.494 0.279 
+Optimized weights: 0.577 0.577 0.577 
+
+Accuracy with wrong HRF (peak=5s): 0.4166667 
+Accuracy with correct HRF (peak=7s): 0.5 
+Optimized HRF peak: 7.326238 s
+True HRF peak: 7 s
+Accuracy with optimized HRF: 0.5833333 
+
+Recovered peaks from different starting points:
+Started at: 3 5 9 
+Recovered: 7.33 7.33 7.33 
+
+⠹ |         23 | collapse-optimization                                          
+✔ |         24 | collapse-optimization
+
+⠏ |          0 | combine-projection-diagnostics                                 
+⠏ |          0 | combine_projection_diagnostics                                 
+✔ |          6 | combine_projection_diagnostics
+
+⠏ |          0 | explain                                                        
+⠏ |          0 | explain projection results                                     
+✔ |          4 | explain projection results
+
+⠏ |          0 | fmridataset-bridge                                             
+⠏ |          0 | fmridataset bridge                                             
+✔ |         13 | fmridataset bridge
+
+⠏ |          0 | fr_projector                                                   
+⠏ |          0 | fr_projector                                                   
+✔ |         10 | fr_projector
+
+⠏ |          0 | fr-design-matrix                                               
+✔ |          3 | fr-design-matrix
+
+⠏ |          0 | hrf-basis-spmg3-theta                                          
+⠏ |          0 | hrf_basis_spmg3_theta                                          
+✔ |         15 | hrf_basis_spmg3_theta
+
+⠏ |          0 | integration-pipeline                                           
+⠏ |          0 | integration pipeline                                           
+⠋ |          1 | integration pipeline                                           
+✔ |   1      3 | integration pipeline
+────────────────────────────────────────────────────────────────────────────────
+Warning ('test-integration-pipeline.R:38:3'): diagnostic memory ceiling works
+Diagnostics exceed memory limit - discarding
+Backtrace:
+    ▆
+ 1. └─fmriproj::build_design_matrix(em, hrf_basis_matrix = basis, diagnostics = TRUE) at test-integration-pipeline.R:38:3
+ 2.   └─fmriproj:::cap_diagnostics(dl) at fmriproj/R/trialwise_design.R:153:5
+────────────────────────────────────────────────────────────────────────────────
+
+⠏ |          0 | integration-rmvpa-models                                       
+⠏ |          0 | Integration tests - rMVPA models with projection               
+⠸ |   1     13 | Integration tests - rMVPA models with projection               
+✔ |   1     32 | Integration tests - rMVPA models with projection
+────────────────────────────────────────────────────────────────────────────────
+Warning ('test-integration-rmvpa-models.R:34:1'): (code run outside of `test_that()`)
+'project_trials' is deprecated.
+Use 'run_regional' instead.
+See help("Deprecated")
+Backtrace:
+    ▆
+ 1. └─fmriproj::project_trials(Y, event_model, verbose = FALSE) at test-integration-rmvpa-models.R:34:1
+ 2.   └─base::.Deprecated("run_regional") at fmriproj/R/user_friendly_wrappers.R:41:3
+────────────────────────────────────────────────────────────────────────────────
+
+⠏ |          0 | ls-svd-hrf-recovery                                            
+⠏ |          0 | ls+svd HRF recovery                                            
+✔ |          1 | ls+svd HRF recovery
+
+⠏ |          0 | make-trialwise-X                                               
+✔ |         12 | make-trialwise-X
+
+⠏ |          0 | model-factory                                                  
+⠏ |          0 | Model factory with S3 dispatch                                 
+✔ |         29 | Model factory with S3 dispatch
+
+⠏ |          0 | onset-policy                                                   
+⠏ |          0 | Onset policy: seconds to indices conversion                    
+✔ |         13 | Onset policy: seconds to indices conversion
+
+⠏ |          0 | optimize-joint-hrf                                             
+⠏ |          0 | optimize_hrf_mvpa                                              
+✔ |          5 | optimize_hrf_mvpa
+
+⠏ |          0 | package                                                        
+✔ |          2 | package
+
+⠏ |          0 | phase1-integration                                             
+✔ |   1     35 | phase1-integration
+────────────────────────────────────────────────────────────────────────────────
+Warning ('test-phase1-integration.R:172:3'): HRF adapter functions work correctly
+Parameters .lag are not arguments to function spmg3_lag(2) and will be ignored
+Backtrace:
+    ▆
+ 1. └─fmriproj:::hrf_to_basis_matrix(hrf_spmg3, time_vec, lag = 2) at test-phase1-integration.R:172:3
+ 2.   ├─base::try(...) at fmriproj/R/hrf_adapter.R:50:7
+ 3.   │ └─base::tryCatch(...)
+ 4.   │   └─base (local) tryCatchList(expr, classes, parentenv, handlers)
+ 5.   │     └─base (local) tryCatchOne(expr, names, parentenv, handlers[[1L]])
+ 6.   │       └─base (local) doTryCatch(return(expr), name, parentenv, handler)
+ 7.   └─fmrihrf::gen_hrf(hrf, lag = lag) at fmriproj/R/hrf_adapter.R:50:13
+ 8.     └─fmrihrf::lag_hrf(decorated_hrf, lag = lag)
+ 9.       └─fmrihrf::as_hrf(...)
+────────────────────────────────────────────────────────────────────────────────
+
+⠏ |          0 | plot-searchlight-diagnostics                                   
+⠏ |          0 | plot_searchlight_diagnostics                                   
+✔ |      1   2 | plot_searchlight_diagnostics
+
+⠏ |          0 | pp                                                             
+⠏ |          0 | progressive projection pursuit                                 
+✔ |          5 | progressive projection pursuit
+
+⠏ |          0 | print-methods                                                  
+⠏ |          0 | print methods                                                  
+✔ |          2 | print methods
+
+⠏ |          0 | project-trials                                                 
+⠏ |          0 | project_trials                                                 
+✔ |          7 | project_trials
+
+⠏ |          0 | projected-data-source                                          
+⠏ |          0 | ProjectedDataSource proxy object                               
+✔ |         40 | ProjectedDataSource proxy object
+
+⠏ |          0 | projection-recovery                                            
+Pattern recovery correlations: 0.006 0.162 0.012 0.009 0.055 0.002 
+Amplitude relative errors: 2.586 1.523 0.266 0.303 0.701 0.717 
+Mean correlation: 0.041 
+Mean relative error: 1.016 
+
+Adaptive lambda values:
+High SNR searchlight: 0.05492479 
+Medium SNR searchlight: 0.4048419 
+Low SNR searchlight: 0.8461014 
+
+✔ |   4     15 | projection-recovery
+────────────────────────────────────────────────────────────────────────────────
+Warning ('test-projection-recovery.R:239:3'): adaptive regularization responds appropriately to local SNR
+K_sl computation for diagnostics is not supported with qr_obj representation. Consider using diagnostics = FALSE for memory efficiency.
+Backtrace:
+    ▆
+ 1. └─fmriproj::adaptive_ridge_projector(...) at test-projection-recovery.R:239:3
+
+Warning ('test-projection-recovery.R:248:3'): adaptive regularization responds appropriately to local SNR
+K_sl computation for diagnostics is not supported with qr_obj representation. Consider using diagnostics = FALSE for memory efficiency.
+Backtrace:
+    ▆
+ 1. └─fmriproj::adaptive_ridge_projector(...) at test-projection-recovery.R:248:3
+
+Warning ('test-projection-recovery.R:257:3'): adaptive regularization responds appropriately to local SNR
+K_sl computation for diagnostics is not supported with qr_obj representation. Consider using diagnostics = FALSE for memory efficiency.
+Backtrace:
+    ▆
+ 1. └─fmriproj::adaptive_ridge_projector(...) at test-projection-recovery.R:257:3
+
+Warning ('test-projection-recovery.R:344:3'): adaptive regularization responds appropriately to local SNR
+K_sl computation for diagnostics is not supported with qr_obj representation. Consider using diagnostics = FALSE for memory efficiency.
+Backtrace:
+    ▆
+ 1. └─fmriproj::adaptive_ridge_projector(...) at test-projection-recovery.R:344:3
+────────────────────────────────────────────────────────────────────────────────
+
+⠏ |          0 | rcpp-helpers                                                   
+✔ |         10 | rcpp-helpers
+
+⠏ |          0 | recommend-chunk-size                                           
+⠏ |          0 | recommend_chunk_size                                           
+✔ |          3 | recommend_chunk_size
+
+⠏ |          0 | refactor-verification                                          
+⠏ |          0 | Refactoring verification - Qt to qr_obj                        
+✔ |   2     12 | Refactoring verification - Qt to qr_obj
+────────────────────────────────────────────────────────────────────────────────
+Warning ('test-refactor-verification.R:23:3'): New qr_obj approach produces identical results to legacy Qt approach
+The 'Qt', 'tRQt', 'K_global' arguments for fr_projector are deprecated. Use 'qr_obj', 'R', 'RtR' instead.
+Backtrace:
+    ▆
+ 1. └─fmriproj::build_projector(X, lambda_global = 0.1, legacy_output = TRUE) at test-refactor-verification.R:23:3
+ 2.   └─fmriproj::fr_projector(...) at fmriproj/R/build_projector.R:85:5
+
+Warning ('test-refactor-verification.R:63:3'): Memory usage: new approach doesn't create Qt matrix
+The 'Qt', 'tRQt', 'K_global' arguments for fr_projector are deprecated. Use 'qr_obj', 'R', 'RtR' instead.
+Backtrace:
+    ▆
+ 1. └─fmriproj::build_projector(X, lambda_global = 0.5, legacy_output = TRUE) at test-refactor-verification.R:63:3
+ 2.   └─fmriproj::fr_projector(...) at fmriproj/R/build_projector.R:85:5
+────────────────────────────────────────────────────────────────────────────────
+
+⠏ |          0 | rmvpa-wrappers                                                 
+⠏ |          0 | rMVPA wrappers                                                 
+✔ |         16 | rMVPA wrappers
+
+⠏ |          0 | run-api                                                        
+⠏ |          0 | run API                                                        
+✔ |      2   0 | run API
+
+⠏ |          0 | run-searchlight                                                
+⠏ |          0 | run_searchlight end-to-end                                     INFO [2025-11-10 19:12:19] Running standard searchlight with radius = 1
+INFO [2025-11-10 19:12:19] creating standard searchlight
+INFO [2025-11-10 19:12:19] running standard searchlight iterator
+INFO [2025-11-10 19:12:19] Processing batch 1/11 (14 ROIs in this batch)
+WARN [2025-11-10 19:12:19] Center voxel 1 not present after filtering for ROI 1 - skipping
+WARN [2025-11-10 19:12:19] Center voxel 2 not present after filtering for ROI 2 - skipping
+WARN [2025-11-10 19:12:19] Center voxel 3 not present after filtering for ROI 3 - skipping
+WARN [2025-11-10 19:12:19] Center voxel 4 not present after filtering for ROI 4 - skipping
+WARN [2025-11-10 19:12:19] Center voxel 5 not present after filtering for ROI 5 - skipping
+WARN [2025-11-10 19:12:19] Center voxel 7 not present after filtering for ROI 7 - skipping
+WARN [2025-11-10 19:12:19] Center voxel 8 not present after filtering for ROI 8 - skipping
+WARN [2025-11-10 19:12:19] Center voxel 9 not present after filtering for ROI 9 - skipping
+WARN [2025-11-10 19:12:19] Center voxel 10 not present after filtering for ROI 10 - skipping
+WARN [2025-11-10 19:12:19] Center voxel 11 not present after filtering for ROI 11 - skipping
+WARN [2025-11-10 19:12:19] Center voxel 13 not present after filtering for ROI 13 - skipping
+WARN [2025-11-10 19:12:19] Center voxel 14 not present after filtering for ROI 14 - skipping
+INFO [2025-11-10 19:12:19] Processing batch 2/11 (13 ROIs in this batch)
+WARN [2025-11-10 19:12:20] Center voxel 15 not present after filtering for ROI 15 - skipping
+WARN [2025-11-10 19:12:20] Center voxel 16 not present after filtering for ROI 16 - skipping
+WARN [2025-11-10 19:12:20] Center voxel 17 not present after filtering for ROI 17 - skipping
+WARN [2025-11-10 19:12:20] Center voxel 19 not present after filtering for ROI 19 - skipping
+WARN [2025-11-10 19:12:20] Center voxel 20 not present after filtering for ROI 20 - skipping
+WARN [2025-11-10 19:12:20] Center voxel 21 not present after filtering for ROI 21 - skipping
+WARN [2025-11-10 19:12:20] Center voxel 22 not present after filtering for ROI 22 - skipping
+WARN [2025-11-10 19:12:20] Center voxel 23 not present after filtering for ROI 23 - skipping
+WARN [2025-11-10 19:12:20] Center voxel 25 not present after filtering for ROI 25 - skipping
+WARN [2025-11-10 19:12:20] Center voxel 26 not present after filtering for ROI 26 - skipping
+WARN [2025-11-10 19:12:20] Center voxel 27 not present after filtering for ROI 27 - skipping
+INFO [2025-11-10 19:12:20] Processing batch 3/11 (13 ROIs in this batch)
+WARN [2025-11-10 19:12:20] Center voxel 28 not present after filtering for ROI 28 - skipping
+WARN [2025-11-10 19:12:20] Center voxel 29 not present after filtering for ROI 29 - skipping
+WARN [2025-11-10 19:12:20] Center voxel 37 not present after filtering for ROI 37 - skipping
+WARN [2025-11-10 19:12:20] Center voxel 38 not present after filtering for ROI 38 - skipping
+WARN [2025-11-10 19:12:20] Center voxel 39 not present after filtering for ROI 39 - skipping
+WARN [2025-11-10 19:12:20] Center voxel 40 not present after filtering for ROI 40 - skipping
+INFO [2025-11-10 19:12:20] Processing batch 4/11 (13 ROIs in this batch)
+WARN [2025-11-10 19:12:21] Center voxel 41 not present after filtering for ROI 41 - skipping
+WARN [2025-11-10 19:12:21] Center voxel 43 not present after filtering for ROI 43 - skipping
+WARN [2025-11-10 19:12:21] Center voxel 44 not present after filtering for ROI 44 - skipping
+WARN [2025-11-10 19:12:21] Center voxel 45 not present after filtering for ROI 45 - skipping
+WARN [2025-11-10 19:12:21] Center voxel 46 not present after filtering for ROI 46 - skipping
+WARN [2025-11-10 19:12:21] Center voxel 47 not present after filtering for ROI 47 - skipping
+WARN [2025-11-10 19:12:21] Center voxel 49 not present after filtering for ROI 49 - skipping
+WARN [2025-11-10 19:12:21] Center voxel 50 not present after filtering for ROI 50 - skipping
+WARN [2025-11-10 19:12:21] Center voxel 51 not present after filtering for ROI 51 - skipping
+WARN [2025-11-10 19:12:21] Center voxel 52 not present after filtering for ROI 52 - skipping
+WARN [2025-11-10 19:12:21] Center voxel 53 not present after filtering for ROI 53 - skipping
+INFO [2025-11-10 19:12:21] Processing batch 5/11 (13 ROIs in this batch)
+WARN [2025-11-10 19:12:21] Center voxel 55 not present after filtering for ROI 55 - skipping
+WARN [2025-11-10 19:12:21] Center voxel 56 not present after filtering for ROI 56 - skipping
+WARN [2025-11-10 19:12:21] Center voxel 57 not present after filtering for ROI 57 - skipping
+WARN [2025-11-10 19:12:21] Center voxel 58 not present after filtering for ROI 58 - skipping
+WARN [2025-11-10 19:12:21] Center voxel 59 not present after filtering for ROI 59 - skipping
+WARN [2025-11-10 19:12:21] Center voxel 61 not present after filtering for ROI 61 - skipping
+WARN [2025-11-10 19:12:21] Center voxel 62 not present after filtering for ROI 62 - skipping
+WARN [2025-11-10 19:12:21] Center voxel 63 not present after filtering for ROI 63 - skipping
+WARN [2025-11-10 19:12:21] Center voxel 64 not present after filtering for ROI 64 - skipping
+WARN [2025-11-10 19:12:21] Center voxel 65 not present after filtering for ROI 65 - skipping
+INFO [2025-11-10 19:12:21] Processing batch 6/11 (13 ROIs in this batch)
+WARN [2025-11-10 19:12:22] Center voxel 73 not present after filtering for ROI 73 - skipping
+WARN [2025-11-10 19:12:22] Center voxel 74 not present after filtering for ROI 74 - skipping
+WARN [2025-11-10 19:12:22] Center voxel 75 not present after filtering for ROI 75 - skipping
+WARN [2025-11-10 19:12:22] Center voxel 76 not present after filtering for ROI 76 - skipping
+WARN [2025-11-10 19:12:22] Center voxel 77 not present after filtering for ROI 77 - skipping
+WARN [2025-11-10 19:12:22] Center voxel 79 not present after filtering for ROI 79 - skipping
+INFO [2025-11-10 19:12:22] Processing batch 7/11 (13 ROIs in this batch)
+WARN [2025-11-10 19:12:22] Center voxel 80 not present after filtering for ROI 80 - skipping
+WARN [2025-11-10 19:12:22] Center voxel 81 not present after filtering for ROI 81 - skipping
+WARN [2025-11-10 19:12:22] Center voxel 82 not present after filtering for ROI 82 - skipping
+WARN [2025-11-10 19:12:22] Center voxel 83 not present after filtering for ROI 83 - skipping
+WARN [2025-11-10 19:12:22] Center voxel 85 not present after filtering for ROI 85 - skipping
+WARN [2025-11-10 19:12:22] Center voxel 86 not present after filtering for ROI 86 - skipping
+WARN [2025-11-10 19:12:22] Center voxel 87 not present after filtering for ROI 87 - skipping
+WARN [2025-11-10 19:12:22] Center voxel 88 not present after filtering for ROI 88 - skipping
+WARN [2025-11-10 19:12:22] Center voxel 89 not present after filtering for ROI 89 - skipping
+WARN [2025-11-10 19:12:22] Center voxel 91 not present after filtering for ROI 91 - skipping
+WARN [2025-11-10 19:12:22] Center voxel 92 not present after filtering for ROI 92 - skipping
+INFO [2025-11-10 19:12:22] Processing batch 8/11 (13 ROIs in this batch)
+WARN [2025-11-10 19:12:22] Center voxel 93 not present after filtering for ROI 93 - skipping
+WARN [2025-11-10 19:12:22] Center voxel 94 not present after filtering for ROI 94 - skipping
+WARN [2025-11-10 19:12:22] Center voxel 95 not present after filtering for ROI 95 - skipping
+WARN [2025-11-10 19:12:22] Center voxel 97 not present after filtering for ROI 97 - skipping
+WARN [2025-11-10 19:12:22] Center voxel 98 not present after filtering for ROI 98 - skipping
+WARN [2025-11-10 19:12:22] Center voxel 99 not present after filtering for ROI 99 - skipping
+WARN [2025-11-10 19:12:22] Center voxel 100 not present after filtering for ROI 100 - skipping
+WARN [2025-11-10 19:12:22] Center voxel 101 not present after filtering for ROI 101 - skipping
+INFO [2025-11-10 19:12:23] Processing batch 9/11 (13 ROIs in this batch)
+WARN [2025-11-10 19:12:23] ! Batch 9: All ROIs filtered out (size < 2 voxels)
+INFO [2025-11-10 19:12:23] Processing batch 10/11 (13 ROIs in this batch)
+WARN [2025-11-10 19:12:23] ! Batch 10: All ROIs filtered out (size < 2 voxels)
+INFO [2025-11-10 19:12:23] Processing batch 11/11 (13 ROIs in this batch)
+WARN [2025-11-10 19:12:23] ! Batch 11: All ROIs filtered out (size < 2 voxels)
+INFO [2025-11-10 19:12:23] 
+MVPA Iteration Complete
+- Total ROIs: 144
+- Processed: 75
+- Skipped: 39
+INFO [2025-11-10 19:12:23] Center voxel 1 not present after filter_roi; ROI skipped
+INFO [2025-11-10 19:12:23] Center voxel 2 not present after filter_roi; ROI skipped
+INFO [2025-11-10 19:12:23] Center voxel 3 not present after filter_roi; ROI skipped
+INFO [2025-11-10 19:12:23] Center voxel 4 not present after filter_roi; ROI skipped
+INFO [2025-11-10 19:12:23] Center voxel 5 not present after filter_roi; ROI skipped
+INFO [2025-11-10 19:12:23] Center voxel 7 not present after filter_roi; ROI skipped
+INFO [2025-11-10 19:12:23] Center voxel 8 not present after filter_roi; ROI skipped
+INFO [2025-11-10 19:12:23] Center voxel 9 not present after filter_roi; ROI skipped
+INFO [2025-11-10 19:12:23] Center voxel 10 not present after filter_roi; ROI skipped
+INFO [2025-11-10 19:12:23] Center voxel 11 not present after filter_roi; ROI skipped
+INFO [2025-11-10 19:12:23] Center voxel 13 not present after filter_roi; ROI skipped
+INFO [2025-11-10 19:12:23] Center voxel 14 not present after filter_roi; ROI skipped
+INFO [2025-11-10 19:12:23] Center voxel 15 not present after filter_roi; ROI skipped
+INFO [2025-11-10 19:12:23] Center voxel 16 not present after filter_roi; ROI skipped
+INFO [2025-11-10 19:12:23] Center voxel 17 not present after filter_roi; ROI skipped
+INFO [2025-11-10 19:12:23] Center voxel 19 not present after filter_roi; ROI skipped
+INFO [2025-11-10 19:12:23] Center voxel 20 not present after filter_roi; ROI skipped
+INFO [2025-11-10 19:12:23] Center voxel 21 not present after filter_roi; ROI skipped
+INFO [2025-11-10 19:12:23] Center voxel 22 not present after filter_roi; ROI skipped
+INFO [2025-11-10 19:12:23] Center voxel 23 not present after filter_roi; ROI skipped
+INFO [2025-11-10 19:12:23] Center voxel 25 not present after filter_roi; ROI skipped
+INFO [2025-11-10 19:12:23] Center voxel 26 not present after filter_roi; ROI skipped
+INFO [2025-11-10 19:12:23] Center voxel 27 not present after filter_roi; ROI skipped
+INFO [2025-11-10 19:12:23] Center voxel 28 not present after filter_roi; ROI skipped
+INFO [2025-11-10 19:12:23] Center voxel 29 not present after filter_roi; ROI skipped
+INFO [2025-11-10 19:12:23] Center voxel 37 not present after filter_roi; ROI skipped
+INFO [2025-11-10 19:12:23] Center voxel 38 not present after filter_roi; ROI skipped
+INFO [2025-11-10 19:12:23] Center voxel 39 not present after filter_roi; ROI skipped
+INFO [2025-11-10 19:12:23] Center voxel 40 not present after filter_roi; ROI skipped
+INFO [2025-11-10 19:12:23] Center voxel 41 not present after filter_roi; ROI skipped
+INFO [2025-11-10 19:12:23] Center voxel 43 not present after filter_roi; ROI skipped
+INFO [2025-11-10 19:12:23] Center voxel 44 not present after filter_roi; ROI skipped
+INFO [2025-11-10 19:12:23] Center voxel 45 not present after filter_roi; ROI skipped
+INFO [2025-11-10 19:12:23] Center voxel 46 not present after filter_roi; ROI skipped
+INFO [2025-11-10 19:12:23] Center voxel 47 not present after filter_roi; ROI skipped
+INFO [2025-11-10 19:12:23] Center voxel 49 not present after filter_roi; ROI skipped
+INFO [2025-11-10 19:12:23] Center voxel 50 not present after filter_roi; ROI skipped
+INFO [2025-11-10 19:12:23] Center voxel 51 not present after filter_roi; ROI skipped
+INFO [2025-11-10 19:12:23] Center voxel 52 not present after filter_roi; ROI skipped
+INFO [2025-11-10 19:12:23] Center voxel 53 not present after filter_roi; ROI skipped
+INFO [2025-11-10 19:12:23] Center voxel 55 not present after filter_roi; ROI skipped
+INFO [2025-11-10 19:12:23] Center voxel 56 not present after filter_roi; ROI skipped
+INFO [2025-11-10 19:12:23] Center voxel 57 not present after filter_roi; ROI skipped
+INFO [2025-11-10 19:12:23] Center voxel 58 not present after filter_roi; ROI skipped
+INFO [2025-11-10 19:12:23] Center voxel 59 not present after filter_roi; ROI skipped
+INFO [2025-11-10 19:12:23] Center voxel 61 not present after filter_roi; ROI skipped
+INFO [2025-11-10 19:12:23] Center voxel 62 not present after filter_roi; ROI skipped
+INFO [2025-11-10 19:12:23] Center voxel 63 not present after filter_roi; ROI skipped
+INFO [2025-11-10 19:12:23] Center voxel 64 not present after filter_roi; ROI skipped
+INFO [2025-11-10 19:12:23] Center voxel 65 not present after filter_roi; ROI skipped
+INFO [2025-11-10 19:12:23] Center voxel 73 not present after filter_roi; ROI skipped
+INFO [2025-11-10 19:12:23] Center voxel 74 not present after filter_roi; ROI skipped
+INFO [2025-11-10 19:12:23] Center voxel 75 not present after filter_roi; ROI skipped
+INFO [2025-11-10 19:12:23] Center voxel 76 not present after filter_roi; ROI skipped
+INFO [2025-11-10 19:12:23] Center voxel 77 not present after filter_roi; ROI skipped
+INFO [2025-11-10 19:12:23] Center voxel 79 not present after filter_roi; ROI skipped
+INFO [2025-11-10 19:12:23] Center voxel 80 not present after filter_roi; ROI skipped
+INFO [2025-11-10 19:12:23] Center voxel 81 not present after filter_roi; ROI skipped
+INFO [2025-11-10 19:12:23] Center voxel 82 not present after filter_roi; ROI skipped
+INFO [2025-11-10 19:12:23] Center voxel 83 not present after filter_roi; ROI skipped
+INFO [2025-11-10 19:12:23] Center voxel 85 not present after filter_roi; ROI skipped
+INFO [2025-11-10 19:12:23] Center voxel 86 not present after filter_roi; ROI skipped
+INFO [2025-11-10 19:12:23] Center voxel 87 not present after filter_roi; ROI skipped
+INFO [2025-11-10 19:12:23] Center voxel 88 not present after filter_roi; ROI skipped
+INFO [2025-11-10 19:12:23] Center voxel 89 not present after filter_roi; ROI skipped
+INFO [2025-11-10 19:12:23] Center voxel 91 not present after filter_roi; ROI skipped
+INFO [2025-11-10 19:12:23] Center voxel 92 not present after filter_roi; ROI skipped
+INFO [2025-11-10 19:12:23] Center voxel 93 not present after filter_roi; ROI skipped
+INFO [2025-11-10 19:12:23] Center voxel 94 not present after filter_roi; ROI skipped
+INFO [2025-11-10 19:12:23] Center voxel 95 not present after filter_roi; ROI skipped
+INFO [2025-11-10 19:12:23] Center voxel 97 not present after filter_roi; ROI skipped
+INFO [2025-11-10 19:12:23] Center voxel 98 not present after filter_roi; ROI skipped
+INFO [2025-11-10 19:12:23] Center voxel 99 not present after filter_roi; ROI skipped
+INFO [2025-11-10 19:12:23] Center voxel 100 not present after filter_roi; ROI skipped
+INFO [2025-11-10 19:12:23] Center voxel 101 not present after filter_roi; ROI skipped
+INFO [2025-11-10 19:12:23] ROI filtered out (size < 2 voxels)
+INFO [2025-11-10 19:12:23] ROI filtered out (size < 2 voxels)
+INFO [2025-11-10 19:12:23] ROI filtered out (size < 2 voxels)
+INFO [2025-11-10 19:12:23] ROI filtered out (size < 2 voxels)
+INFO [2025-11-10 19:12:23] ROI filtered out (size < 2 voxels)
+INFO [2025-11-10 19:12:23] ROI filtered out (size < 2 voxels)
+INFO [2025-11-10 19:12:23] ROI filtered out (size < 2 voxels)
+INFO [2025-11-10 19:12:23] ROI filtered out (size < 2 voxels)
+INFO [2025-11-10 19:12:23] ROI filtered out (size < 2 voxels)
+INFO [2025-11-10 19:12:23] ROI filtered out (size < 2 voxels)
+INFO [2025-11-10 19:12:23] ROI filtered out (size < 2 voxels)
+INFO [2025-11-10 19:12:23] ROI filtered out (size < 2 voxels)
+INFO [2025-11-10 19:12:23] ROI filtered out (size < 2 voxels)
+INFO [2025-11-10 19:12:23] ROI filtered out (size < 2 voxels)
+INFO [2025-11-10 19:12:23] ROI filtered out (size < 2 voxels)
+INFO [2025-11-10 19:12:23] ROI filtered out (size < 2 voxels)
+INFO [2025-11-10 19:12:23] ROI filtered out (size < 2 voxels)
+INFO [2025-11-10 19:12:23] ROI filtered out (size < 2 voxels)
+INFO [2025-11-10 19:12:23] ROI filtered out (size < 2 voxels)
+INFO [2025-11-10 19:12:23] ROI filtered out (size < 2 voxels)
+INFO [2025-11-10 19:12:23] ROI filtered out (size < 2 voxels)
+INFO [2025-11-10 19:12:23] ROI filtered out (size < 2 voxels)
+INFO [2025-11-10 19:12:23] ROI filtered out (size < 2 voxels)
+INFO [2025-11-10 19:12:23] ROI filtered out (size < 2 voxels)
+INFO [2025-11-10 19:12:23] ROI filtered out (size < 2 voxels)
+INFO [2025-11-10 19:12:23] ROI filtered out (size < 2 voxels)
+INFO [2025-11-10 19:12:23] ROI filtered out (size < 2 voxels)
+INFO [2025-11-10 19:12:23] ROI filtered out (size < 2 voxels)
+INFO [2025-11-10 19:12:23] ROI filtered out (size < 2 voxels)
+INFO [2025-11-10 19:12:23] ROI filtered out (size < 2 voxels)
+INFO [2025-11-10 19:12:23] ROI filtered out (size < 2 voxels)
+INFO [2025-11-10 19:12:23] ROI filtered out (size < 2 voxels)
+INFO [2025-11-10 19:12:23] ROI filtered out (size < 2 voxels)
+INFO [2025-11-10 19:12:23] ROI filtered out (size < 2 voxels)
+INFO [2025-11-10 19:12:23] ROI filtered out (size < 2 voxels)
+INFO [2025-11-10 19:12:23] ROI filtered out (size < 2 voxels)
+INFO [2025-11-10 19:12:23] ROI filtered out (size < 2 voxels)
+INFO [2025-11-10 19:12:23] ROI filtered out (size < 2 voxels)
+INFO [2025-11-10 19:12:23] ROI filtered out (size < 2 voxels)
+ERROR [2025-11-10 19:12:23] no valid results for standard searchlight: 114 ROIs failed.
+ERROR [2025-11-10 19:12:23] No successful results to combine. Examining errors from bad results:
+ERROR [2025-11-10 19:12:23] Error summary from 114 failed ROIs:
+ERROR [2025-11-10 19:12:23]   - Center voxel 1 not present after filter_roi; ROI skipped: 1 occurrences
+ERROR [2025-11-10 19:12:23]   - Center voxel 10 not present after filter_roi; ROI skipped: 1 occurrences
+ERROR [2025-11-10 19:12:23]   - Center voxel 100 not present after filter_roi; ROI skipped: 1 occurrences
+ERROR [2025-11-10 19:12:23]   - Center voxel 101 not present after filter_roi; ROI skipped: 1 occurrences
+ERROR [2025-11-10 19:12:23]   - Center voxel 11 not present after filter_roi; ROI skipped: 1 occurrences
+ERROR [2025-11-10 19:12:23]   - Center voxel 13 not present after filter_roi; ROI skipped: 1 occurrences
+ERROR [2025-11-10 19:12:23]   - Center voxel 14 not present after filter_roi; ROI skipped: 1 occurrences
+ERROR [2025-11-10 19:12:23]   - Center voxel 15 not present after filter_roi; ROI skipped: 1 occurrences
+ERROR [2025-11-10 19:12:23]   - Center voxel 16 not present after filter_roi; ROI skipped: 1 occurrences
+ERROR [2025-11-10 19:12:23]   - Center voxel 17 not present after filter_roi; ROI skipped: 1 occurrences
+ERROR [2025-11-10 19:12:23]   - Center voxel 19 not present after filter_roi; ROI skipped: 1 occurrences
+ERROR [2025-11-10 19:12:23]   - Center voxel 2 not present after filter_roi; ROI skipped: 1 occurrences
+ERROR [2025-11-10 19:12:23]   - Center voxel 20 not present after filter_roi; ROI skipped: 1 occurrences
+ERROR [2025-11-10 19:12:23]   - Center voxel 21 not present after filter_roi; ROI skipped: 1 occurrences
+ERROR [2025-11-10 19:12:23]   - Center voxel 22 not present after filter_roi; ROI skipped: 1 occurrences
+ERROR [2025-11-10 19:12:23]   - Center voxel 23 not present after filter_roi; ROI skipped: 1 occurrences
+ERROR [2025-11-10 19:12:23]   - Center voxel 25 not present after filter_roi; ROI skipped: 1 occurrences
+ERROR [2025-11-10 19:12:23]   - Center voxel 26 not present after filter_roi; ROI skipped: 1 occurrences
+ERROR [2025-11-10 19:12:23]   - Center voxel 27 not present after filter_roi; ROI skipped: 1 occurrences
+ERROR [2025-11-10 19:12:23]   - Center voxel 28 not present after filter_roi; ROI skipped: 1 occurrences
+ERROR [2025-11-10 19:12:23]   - Center voxel 29 not present after filter_roi; ROI skipped: 1 occurrences
+ERROR [2025-11-10 19:12:23]   - Center voxel 3 not present after filter_roi; ROI skipped: 1 occurrences
+ERROR [2025-11-10 19:12:23]   - Center voxel 37 not present after filter_roi; ROI skipped: 1 occurrences
+ERROR [2025-11-10 19:12:23]   - Center voxel 38 not present after filter_roi; ROI skipped: 1 occurrences
+ERROR [2025-11-10 19:12:23]   - Center voxel 39 not present after filter_roi; ROI skipped: 1 occurrences
+ERROR [2025-11-10 19:12:23]   - Center voxel 4 not present after filter_roi; ROI skipped: 1 occurrences
+ERROR [2025-11-10 19:12:23]   - Center voxel 40 not present after filter_roi; ROI skipped: 1 occurrences
+ERROR [2025-11-10 19:12:23]   - Center voxel 41 not present after filter_roi; ROI skipped: 1 occurrences
+ERROR [2025-11-10 19:12:23]   - Center voxel 43 not present after filter_roi; ROI skipped: 1 occurrences
+ERROR [2025-11-10 19:12:23]   - Center voxel 44 not present after filter_roi; ROI skipped: 1 occurrences
+ERROR [2025-11-10 19:12:23]   - Center voxel 45 not present after filter_roi; ROI skipped: 1 occurrences
+ERROR [2025-11-10 19:12:23]   - Center voxel 46 not present after filter_roi; ROI skipped: 1 occurrences
+ERROR [2025-11-10 19:12:23]   - Center voxel 47 not present after filter_roi; ROI skipped: 1 occurrences
+ERROR [2025-11-10 19:12:23]   - Center voxel 49 not present after filter_roi; ROI skipped: 1 occurrences
+ERROR [2025-11-10 19:12:23]   - Center voxel 5 not present after filter_roi; ROI skipped: 1 occurrences
+ERROR [2025-11-10 19:12:23]   - Center voxel 50 not present after filter_roi; ROI skipped: 1 occurrences
+ERROR [2025-11-10 19:12:23]   - Center voxel 51 not present after filter_roi; ROI skipped: 1 occurrences
+ERROR [2025-11-10 19:12:23]   - Center voxel 52 not present after filter_roi; ROI skipped: 1 occurrences
+ERROR [2025-11-10 19:12:23]   - Center voxel 53 not present after filter_roi; ROI skipped: 1 occurrences
+ERROR [2025-11-10 19:12:23]   - Center voxel 55 not present after filter_roi; ROI skipped: 1 occurrences
+ERROR [2025-11-10 19:12:23]   - Center voxel 56 not present after filter_roi; ROI skipped: 1 occurrences
+ERROR [2025-11-10 19:12:23]   - Center voxel 57 not present after filter_roi; ROI skipped: 1 occurrences
+ERROR [2025-11-10 19:12:23]   - Center voxel 58 not present after filter_roi; ROI skipped: 1 occurrences
+ERROR [2025-11-10 19:12:23]   - Center voxel 59 not present after filter_roi; ROI skipped: 1 occurrences
+ERROR [2025-11-10 19:12:23]   - Center voxel 61 not present after filter_roi; ROI skipped: 1 occurrences
+ERROR [2025-11-10 19:12:23]   - Center voxel 62 not present after filter_roi; ROI skipped: 1 occurrences
+ERROR [2025-11-10 19:12:23]   - Center voxel 63 not present after filter_roi; ROI skipped: 1 occurrences
+ERROR [2025-11-10 19:12:23]   - Center voxel 64 not present after filter_roi; ROI skipped: 1 occurrences
+ERROR [2025-11-10 19:12:23]   - Center voxel 65 not present after filter_roi; ROI skipped: 1 occurrences
+ERROR [2025-11-10 19:12:23]   - Center voxel 7 not present after filter_roi; ROI skipped: 1 occurrences
+ERROR [2025-11-10 19:12:23]   - Center voxel 73 not present after filter_roi; ROI skipped: 1 occurrences
+ERROR [2025-11-10 19:12:23]   - Center voxel 74 not present after filter_roi; ROI skipped: 1 occurrences
+ERROR [2025-11-10 19:12:23]   - Center voxel 75 not present after filter_roi; ROI skipped: 1 occurrences
+ERROR [2025-11-10 19:12:23]   - Center voxel 76 not present after filter_roi; ROI skipped: 1 occurrences
+ERROR [2025-11-10 19:12:23]   - Center voxel 77 not present after filter_roi; ROI skipped: 1 occurrences
+ERROR [2025-11-10 19:12:23]   - Center voxel 79 not present after filter_roi; ROI skipped: 1 occurrences
+ERROR [2025-11-10 19:12:23]   - Center voxel 8 not present after filter_roi; ROI skipped: 1 occurrences
+ERROR [2025-11-10 19:12:23]   - Center voxel 80 not present after filter_roi; ROI skipped: 1 occurrences
+ERROR [2025-11-10 19:12:23]   - Center voxel 81 not present after filter_roi; ROI skipped: 1 occurrences
+ERROR [2025-11-10 19:12:23]   - Center voxel 82 not present after filter_roi; ROI skipped: 1 occurrences
+ERROR [2025-11-10 19:12:23]   - Center voxel 83 not present after filter_roi; ROI skipped: 1 occurrences
+ERROR [2025-11-10 19:12:23]   - Center voxel 85 not present after filter_roi; ROI skipped: 1 occurrences
+ERROR [2025-11-10 19:12:23]   - Center voxel 86 not present after filter_roi; ROI skipped: 1 occurrences
+ERROR [2025-11-10 19:12:23]   - Center voxel 87 not present after filter_roi; ROI skipped: 1 occurrences
+ERROR [2025-11-10 19:12:23]   - Center voxel 88 not present after filter_roi; ROI skipped: 1 occurrences
+ERROR [2025-11-10 19:12:23]   - Center voxel 89 not present after filter_roi; ROI skipped: 1 occurrences
+ERROR [2025-11-10 19:12:23]   - Center voxel 9 not present after filter_roi; ROI skipped: 1 occurrences
+ERROR [2025-11-10 19:12:23]   - Center voxel 91 not present after filter_roi; ROI skipped: 1 occurrences
+ERROR [2025-11-10 19:12:23]   - Center voxel 92 not present after filter_roi; ROI skipped: 1 occurrences
+ERROR [2025-11-10 19:12:23]   - Center voxel 93 not present after filter_roi; ROI skipped: 1 occurrences
+ERROR [2025-11-10 19:12:23]   - Center voxel 94 not present after filter_roi; ROI skipped: 1 occurrences
+ERROR [2025-11-10 19:12:23]   - Center voxel 95 not present after filter_roi; ROI skipped: 1 occurrences
+ERROR [2025-11-10 19:12:23]   - Center voxel 97 not present after filter_roi; ROI skipped: 1 occurrences
+ERROR [2025-11-10 19:12:23]   - Center voxel 98 not present after filter_roi; ROI skipped: 1 occurrences
+ERROR [2025-11-10 19:12:23]   - Center voxel 99 not present after filter_roi; ROI skipped: 1 occurrences
+ERROR [2025-11-10 19:12:23]   - ROI filtered out (size < 2 voxels): 39 occurrences
+ERROR [2025-11-10 19:12:23] Sample of first 5 errors:
+ERROR [2025-11-10 19:12:23]   ROI 1: Center voxel 1 not present after filter_roi; ROI skipped
+ERROR [2025-11-10 19:12:23]   ROI 2: Center voxel 2 not present after filter_roi; ROI skipped
+ERROR [2025-11-10 19:12:23]   ROI 3: Center voxel 3 not present after filter_roi; ROI skipped
+ERROR [2025-11-10 19:12:23]   ROI 4: Center voxel 4 not present after filter_roi; ROI skipped
+ERROR [2025-11-10 19:12:23]   ROI 5: Center voxel 5 not present after filter_roi; ROI skipped
+
+⠋ | 1        0 | run_searchlight end-to-end                                     
+✖ | 1        0 | run_searchlight end-to-end [4.1s]
+────────────────────────────────────────────────────────────────────────────────
+Error ('test-run-searchlight.R:43:3'): run_searchlight returns searchlight_result object
+Error in `combiner(model_spec, good_results, bad_results)`: No valid results for standard searchlight: all ROIs failed to process
+Backtrace:
+    ▆
+ 1. └─fmriproj::run_searchlight(...) at test-run-searchlight.R:43:3
+ 2.   ├─rMVPA::run_searchlight(...) at fmriproj/R/api_run_analysis.R:129:3
+ 3.   └─rMVPA:::run_searchlight.default(...)
+ 4.     └─rMVPA::run_searchlight_base(...)
+ 5.       └─rMVPA:::do_standard(...)
+ 6.         └─rMVPA (local) combiner(model_spec, good_results, bad_results)
+────────────────────────────────────────────────────────────────────────────────
+
+⠏ |          0 | train-model-wrapper                                            
+⠏ |          0 | train_model.mvpa_model                                         
+✔ |          3 | train_model.mvpa_model
+
+⠏ |          0 | trialwise-compatibility                                        
+✔ |         35 | trialwise-compatibility
+
+══ Results ═════════════════════════════════════════════════════════════════════
+Duration: 5.7 s
+
+── Skipped tests (3) ───────────────────────────────────────────────────────────
+• ggplot2 installed; cannot simulate missing dependency (1):
+  'test-plot-searchlight-diagnostics.R:4:3'
+• rMVPA installed; cannot simulate missing dependency (2):
+  'test-run-api.R:18:3', 'test-run-api.R:27:3'
+
+── Failed tests ────────────────────────────────────────────────────────────────
+Error ('test-run-searchlight.R:43:3'): run_searchlight returns searchlight_result object
+Error in `combiner(model_spec, good_results, bad_results)`: No valid results for standard searchlight: all ROIs failed to process
+Backtrace:
+    ▆
+ 1. └─fmriproj::run_searchlight(...) at test-run-searchlight.R:43:3
+ 2.   ├─rMVPA::run_searchlight(...) at fmriproj/R/api_run_analysis.R:129:3
+ 3.   └─rMVPA:::run_searchlight.default(...)
+ 4.     └─rMVPA::run_searchlight_base(...)
+ 5.       └─rMVPA:::do_standard(...)
+ 6.         └─rMVPA (local) combiner(model_spec, good_results, bad_results)
+
+[ FAIL 1 | WARN 23 | SKIP 3 | PASS 473 ]
+> 

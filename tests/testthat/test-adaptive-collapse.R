@@ -12,7 +12,12 @@ test_that("adaptive_ridge_projector with method none works", {
   expect_equal(dim(res$Z_sl_raw), c(ncol(X), 2L))
   diag <- res$diag_data
   expect_true(!is.null(diag))
-  expect_equal(dim(diag$K_sl), dim(proj$K_global))
+  # K_sl computation not supported for new qr representation
+  if (proj$.internal_representation == "qr") {
+    expect_null(diag$K_sl)
+  } else {
+    expect_equal(dim(diag$K_sl), dim(proj$K_global))
+  }
   expect_equal(diag$lambda_sl_chosen, 0.5)
 })
 
@@ -43,7 +48,12 @@ test_that("adaptive_ridge_projector EB works", {
   expect_equal(dim(res$Z_sl_raw), c(ncol(X), 2L))
   diag <- res$diag_data
   expect_true(!is.null(diag))
-  expect_equal(dim(diag$K_sl), dim(proj$K_global))
+  # K_sl computation not supported for new qr representation
+  if (proj$.internal_representation == "qr") {
+    expect_null(diag$K_sl)
+  } else {
+    expect_equal(dim(diag$K_sl), dim(proj$K_global))
+  }
   expect_true(is.finite(diag$lambda_sl_chosen))
   expect_true(is.numeric(diag$s_n_sq_vec))
   expect_length(diag$s_n_sq_vec, ncol(Y_sl))
@@ -67,7 +77,12 @@ test_that("adaptive_ridge_projector LOOcv_local works", {
                                   X_theta_for_EB_residuals = X,
                                   diagnostics = TRUE)
   expect_equal(dim(res$Z_sl_raw), c(ncol(X), 2L))
-  expect_equal(dim(res$diag_data$K_sl), dim(proj$K_global))
+  # K_sl computation not supported for new qr representation
+  if (proj$.internal_representation == "qr") {
+    expect_null(res$diag_data$K_sl)
+  } else {
+    expect_equal(dim(res$diag_data$K_sl), dim(proj$K_global))
+  }
   expect_true(is.finite(res$diag_data$lambda_sl_chosen))
 })
 
@@ -76,14 +91,16 @@ test_that("adaptive_ridge_projector works without precomputed matrices", {
   basis <- matrix(c(1,0,0,
                     0,1,0), nrow = 3, byrow = FALSE)
   X <- build_design_matrix(em, hrf_basis_matrix = basis)$X
-  proj_full <- build_projector(X)
-  proj_legacy <- fr_projector(proj_full$Qt, proj_full$R, proj_full$K_global)
+  # Test both new and legacy representations
+  proj_new <- build_projector(X)
+  proj_legacy <- build_projector(X, legacy_output = TRUE)
   Y_sl <- matrix(1, nrow = 6, ncol = 1)
-  res1 <- adaptive_ridge_projector(Y_sl, proj_full,
+  res1 <- adaptive_ridge_projector(Y_sl, proj_new,
                                    lambda_floor_global = 0.5)
   res2 <- adaptive_ridge_projector(Y_sl, proj_legacy,
                                    lambda_floor_global = 0.5)
-  expect_equal(res1$Z_sl_raw, res2$Z_sl_raw)
+  # Check numerical equivalence (ignoring attributes)
+  expect_equal(as.numeric(res1$Z_sl_raw), as.numeric(res2$Z_sl_raw), tolerance = 1e-10)
 })
 
 test_that("collapse_beta pc works", {

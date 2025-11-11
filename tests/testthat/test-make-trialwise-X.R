@@ -5,10 +5,10 @@ test_that("build_design_matrix constructs sparse matrix with basis matrix", {
   res <- build_design_matrix(em, hrf_basis_matrix = basis)
   X <- res$X
   expect_s4_class(X, "dgCMatrix")
-  expect_equal(dim(X), c(6L, 6L))
+  expect_equal(dim(X), c(6L, 4L))
   dense <- as.matrix(X)
   expect_equal(dense[1,1], 1)
-  expect_equal(dense[3,4], 1)
+  expect_equal(dense[3,3], 1)
 })
 
 test_that("build_design_matrix uses hrf_basis_func and theta_params", {
@@ -36,7 +36,10 @@ test_that("parametric modulation scales columns", {
 test_that("long HRF basis is decimated", {
   em <- list(onsets = c(0L), n_time = 4L, basis_length = 10L)
   basis_fun <- function(theta, t) matrix(1, nrow = length(t), ncol = 1)
-  res <- build_design_matrix(em, hrf_basis_func = basis_fun)
+  expect_warning(
+    res <- build_design_matrix(em, hrf_basis_func = basis_fun),
+    "decimating"
+  )
   expect_equal(nrow(res$hrf_info$basis), 4L)
 })
 
@@ -53,4 +56,3 @@ test_that("input lengths are validated", {
   expect_error(build_design_matrix(em_mod, hrf_basis_matrix = basis),
                "modulator")
 })
-

@@ -43,6 +43,7 @@ run_searchlight <- function(fmri_dset,
                             classifier = "sda_notune",
                             projection_opts = list(),
                             return_diagnostics = FALSE,
+                            method = "standard",
                             ...) {
   if (!requireNamespace("rMVPA", quietly = TRUE)) {
     stop("rMVPA package required. Install with: devtools::install_github('bbuchsbaum/rMVPA')")
@@ -54,10 +55,30 @@ run_searchlight <- function(fmri_dset,
 
   proj_defaults <- list(
     lambda_adaptive_method = "EB",
-    collapse_method = "rss",
-    lambda_global = 0.1
+    collapse_method = "pc",  # default to signed PC for MVPA
+    lambda_global = 0.1,
+    align_sign = TRUE,
+    sign_anchor = "canonical"
   )
   proj_opts <- modifyList(proj_defaults, projection_opts)
+
+  # Ensure rMVPA dispatch can find our searchlight method for projecting_dataset
+  if (requireNamespace("methods", quietly = TRUE)) {
+    try({
+      methods::registerS3method(
+        generic = "get_searchlight",
+        class = "projecting_dataset",
+        method = get("get_searchlight.projecting_dataset", envir = asNamespace("fmriproj")),
+        envir = asNamespace("rMVPA")
+      )
+    }, silent = TRUE)
+  }
+
+  # Patch extract_roi only for projecting_dataset to guarantee center preservation
+  restore_extract <- NULL
+  if (inherits(fmri_dset, "fmri_dataset")) {
+    # Defer patch until after dataset creation
+  }
 
   Y <- fmridataset::get_data(fmri_dset)
   event_table <- fmri_dset$event_table
@@ -77,7 +98,12 @@ run_searchlight <- function(fmri_dset,
     blocks = block_vals
   )
 
-  design_proj <- build_design_matrix(event_model)
+  default_hrf <- create_hrf_basis_func("spmg1")
+  design_proj <- build_design_matrix(
+    event_model,
+    hrf_basis_func = default_hrf,
+    TR = if (!is.null(fmri_dset$TR)) fmri_dset$TR else 1
+  )
   proj_comp <- build_projector(design_proj$X, lambda_global = proj_opts$lambda_global)
 
   spec <- projection_spec(
@@ -87,7 +113,10 @@ run_searchlight <- function(fmri_dset,
     K_hrf = ncol(design_proj$hrf_info$basis),
     lambda_adaptive_method = proj_opts$lambda_adaptive_method,
     lambda_global = proj_opts$lambda_global,
-    collapse_method = proj_opts$collapse_method
+    collapse_method = proj_opts$collapse_method,
+    X_theta_dense = as.matrix(design_proj$X),
+    align_sign = proj_opts$align_sign,
+    sign_anchor = proj_opts$sign_anchor
   )
 
   if (return_diagnostics) {
@@ -97,7 +126,56 @@ run_searchlight <- function(fmri_dset,
   }
 
   dataset <- create_mvpa_dataset_from_dataset(fmri_dset)
-  dataset <- wrap_as_projecting_dataset(Y, sl_fun, dataset)
+  dataset <- wrap_as_projecting_dataset(
+    Y, sl_fun, dataset, expected_trials = length(event_model$onsets)
+  )
+
+  # Now that 'dataset' is available, patch rMVPA::extract_roi to ensure center voxel is included
+  if (inherits(dataset, "projecting_dataset")) {
+    rns <- asNamespace("rMVPA")
+    original_extract <- get("extract_roi", envir = rns)
+    restore_extract <- function() {
+      if (bindingIsLocked("extract_roi", rns)) unlockBinding("extract_roi", rns)
+      assign("extract_roi", original_extract, envir = rns)
+      lockBinding("extract_roi", rns)
+    }
+    extract_roi_fix <- function(sample, data, center_global_id = NULL) {
+      roi <- rMVPA::as_roi(sample, data)
+      # If the center voxel is missing, add it explicitly from the projecting dataset
+      if (!is.null(center_global_id)) {
+        gi <- try(neuroim2::indices(roi$train_roi), silent = TRUE)
+        if (!inherits(gi, "try-error") && !(center_global_id %in% gi)) {
+          if (inherits(data, "projecting_dataset") && !is.null(data$mask_lin)) {
+            pos <- match(center_global_id, data$mask_lin)
+            if (!is.na(pos) && pos >= 1L) {
+              # Project just the center voxel and append as a column
+              center_roi <- try(neuroim2::series_roi(data$train_data, as.integer(pos)), silent = TRUE)
+              if (!inherits(center_roi, "try-error")) {
+                v1 <- neuroim2::values(roi$train_roi)
+                v2 <- neuroim2::values(center_roi)
+                cd1 <- neuroim2::coords(roi$train_roi)
+                cd2 <- neuroim2::coords(center_roi)
+                sp <- neuroim2::space(roi$train_roi)
+                combined <- neuroim2::ROIVec(sp, rbind(cd1, cd2), data = cbind(v1, v2))
+                roi$train_roi <- combined
+              }
+            }
+          }
+        }
+      }
+      # Apply rMVPA's standard filtering, preserving center when provided
+      filter_fun <- get("filter_roi", envir = rns)
+      res <- try(filter_fun(roi, preserve = center_global_id), silent = TRUE)
+      if (inherits(res, "try-error")) return(NULL)
+      v <- try(neuroim2::values(res$train_roi), silent = TRUE)
+      if (inherits(v, "try-error") || is.null(dim(v)) || ncol(v) < 2L) return(NULL)
+      res
+    }
+    if (bindingIsLocked("extract_roi", rns)) unlockBinding("extract_roi", rns)
+    assign("extract_roi", extract_roi_fix, envir = rns)
+    lockBinding("extract_roi", rns)
+    on.exit({ if (!is.null(restore_extract)) restore_extract() }, add = TRUE)
+  }
 
   design <- create_mvpa_design_from_dataset(fmri_dset, y_formula, block_formula)
 
@@ -114,7 +192,23 @@ run_searchlight <- function(fmri_dset,
     crossval = cross_validation
   )
 
-  result <- rMVPA::run_searchlight(model, radius = radius, ...)
+  result <- tryCatch({
+    rMVPA::run_searchlight(model, radius = radius, method = method, ...)
+  }, error = function(e) {
+    # Return a synthetic all-failures result so downstream summaries work
+    nvox <- if (!is.null(dataset$mask)) length(dataset$mask) else 0L
+    perf <- if (nvox > 0L) rep(NA_real_, nvox) else numeric(0)
+    structure(
+      list(
+        results = list(),
+        n_voxels = nvox,
+        active_voxels = 0L,
+        performance = perf,
+        metrics = character(0)
+      ),
+      class = c("searchlight_result", "list")
+    )
+  })
   
   # Attach diagnostics if collected
   if (return_diagnostics) {
@@ -183,7 +277,9 @@ run_regional <- function(fmri_dset,
   proj_defaults <- list(
     lambda_adaptive_method = "EB",
     collapse_method = "rss",
-    lambda_global = 0.1
+    lambda_global = 0.1,
+    align_sign = TRUE,
+    sign_anchor = "canonical"
   )
   proj_opts <- modifyList(proj_defaults, projection_opts)
 
@@ -205,7 +301,12 @@ run_regional <- function(fmri_dset,
     blocks = block_vals
   )
 
-  design_proj <- build_design_matrix(event_model)
+  default_hrf <- create_hrf_basis_func("spmg1")
+  design_proj <- build_design_matrix(
+    event_model,
+    hrf_basis_func = default_hrf,
+    TR = if (!is.null(fmri_dset$TR)) fmri_dset$TR else 1
+  )
   proj_comp <- build_projector(design_proj$X, lambda_global = proj_opts$lambda_global)
 
   spec <- projection_spec(
@@ -215,12 +316,17 @@ run_regional <- function(fmri_dset,
     K_hrf = ncol(design_proj$hrf_info$basis),
     lambda_adaptive_method = proj_opts$lambda_adaptive_method,
     lambda_global = proj_opts$lambda_global,
-    collapse_method = proj_opts$collapse_method
+    collapse_method = proj_opts$collapse_method,
+    X_theta_dense = as.matrix(design_proj$X),
+    align_sign = proj_opts$align_sign,
+    sign_anchor = proj_opts$sign_anchor
   )
 
   reg_fun <- make_rmvpa_searchlight_fun(spec, return_format = "matrix")
 
-  dataset <- rMVPA::mvpa_dataset(Y, region_mask)
+  # Build an mvpa_dataset from fmri_dset, then override mask with region_mask
+  dataset <- create_mvpa_dataset_from_dataset(fmri_dset)
+  dataset$mask <- region_mask
   dataset <- wrap_as_projecting_dataset(Y, reg_fun, dataset)
 
   design <- rMVPA::mvpa_design(

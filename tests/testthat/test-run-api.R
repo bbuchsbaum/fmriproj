@@ -15,6 +15,8 @@ em <- list(onsets = 1L, n_time = 2L, conditions = 1L)
 # These functions require rMVPA, so check that they error when missing
 
 test_that("run_searchlight errors without rMVPA", {
+  skip_if(requireNamespace("rMVPA", quietly = TRUE),
+          "rMVPA installed; cannot simulate missing dependency")
   expect_error(
     run_searchlight(fmri_dset, radius = 3, y_formula = ~y, block_formula = ~block),
     "rMVPA package required"
@@ -22,6 +24,8 @@ test_that("run_searchlight errors without rMVPA", {
 })
 
 test_that("run_regional errors without rMVPA", {
+  skip_if(requireNamespace("rMVPA", quietly = TRUE),
+          "rMVPA installed; cannot simulate missing dependency")
   expect_error(
     run_regional(fmri_dset, region_mask = mask, y_formula = ~y, block_formula = ~block),
     "rMVPA package required"

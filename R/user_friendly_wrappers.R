@@ -35,22 +35,38 @@ project_trials <- function(Y,
                           collapse_method = c("rss", "pc", "optim"),
                           lambda_global = 0.1,
                           hrf_basis = NULL,
+                          TR = 1,
                           verbose = TRUE) {
 
   .Deprecated("run_regional")
   
-  lambda_method <- match.arg(lambda_method,
-                             c("EB", "none", "LOOcv_local", "CV"))
+  if (missing(lambda_method)) {
+    lambda_method <- "EB"
+  } else {
+    lambda_method <- match.arg(lambda_method,
+                               c("EB", "none", "LOOcv_local", "CV"))
+  }
   if (lambda_method == "CV")
     lambda_method <- "LOOcv_local"
-  collapse_method <- match.arg(collapse_method)
+  if (missing(collapse_method)) {
+    collapse_method <- "rss"
+  } else {
+    collapse_method <- match.arg(collapse_method)
+  }
   
   if (verbose) message("Building design matrix...")
   
   # Step 1: Design matrix
+  # Provide a simple default HRF basis if none supplied
+  if (is.null(hrf_basis)) {
+    L <- event_model$basis_length
+    if (is.null(L)) L <- 30
+    hrf_basis <- matrix(1, nrow = L, ncol = 1)
+  }
   design <- build_design_matrix(
     event_model = event_model,
-    hrf_basis_matrix = hrf_basis
+    hrf_basis_matrix = hrf_basis,
+    TR = TR
   )
   
   if (verbose) message("Creating projector...")
@@ -371,4 +387,16 @@ plot_searchlight_diagnostics <- function(results,
   }
   
   return(p)
+}
+
+#' Get searchlight index from voxel
+#' @keywords internal
+get_searchlight_index <- function(results, voxel) {
+  if (!is.null(results$voxel_indices)) {
+    # Use mapping if available
+    which(results$voxel_indices == voxel)
+  } else {
+    # Direct indexing
+    voxel
+  }
 }

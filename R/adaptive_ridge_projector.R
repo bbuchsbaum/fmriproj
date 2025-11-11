@@ -1,13 +1,51 @@
 #' Internal helper: Solve ridge regression using Cholesky decomposition
+#' Handles both legacy (explicit Qt) and new (qr_obj) representations
 #' @noRd
-.solve_ridge_chol <- function(R, Qt, Y, lambda) {
-  lhs <- crossprod(R)
-  diag(lhs) <- diag(lhs) + lambda
-  tRQt <- t(R) %*% Qt
+.solve_ridge_chol <- function(projector_components, Y, lambda) {
   
+  if (projector_components$.internal_representation == "qr") {
+    # New efficient QR path
+    qr_obj <- projector_components$qr_obj
+    R <- projector_components$R
+    
+    # LHS: t(R)R + lambda*I
+    lhs <- projector_components$RtR  # Pre-computed
+    diag(lhs) <- diag(lhs) + lambda
+    
+    # RHS: t(R) %*% t(Q)Y
+    # qr.qty computes t(Q)Y efficiently without forming Q
+    qty <- Matrix::qr.qty(qr_obj, Y)
+    # Only need first p rows where p = ncol(R)
+    p <- ncol(R)
+    rhs <- t(R) %*% qty[1:p, , drop = FALSE]
+    
+  } else {
+    # Legacy path with explicit Qt
+    Qt <- projector_components$Qt
+    R <- projector_components$R
+    tRQt <- projector_components$tRQt
+    
+    # If tRQt not pre-computed, compute it
+    if (is.null(tRQt)) {
+      tRQt <- t(R) %*% Qt
+    }
+    
+    # LHS: RtR + lambda*I
+    lhs <- projector_components$RtR
+    if (is.null(lhs)) {
+      lhs <- crossprod(R)
+    }
+    diag(lhs) <- diag(lhs) + lambda
+    
+    # RHS: tRQt %*% Y
+    rhs <- tRQt %*% Y
+  }
+  
+  # Common solver logic
   cho <- chol(lhs)
-  K <- backsolve(cho, backsolve(cho, tRQt, transpose = TRUE))
-  K %*% Y
+  beta <- backsolve(cho, backsolve(cho, rhs, transpose = TRUE))
+  
+  return(beta)
 }
 
 #' Adaptive Ridge Projection for a Searchlight
@@ -48,10 +86,21 @@ adaptive_ridge_projector <- function(Y_sl,
                                      lambda_grid_local = c(0, 0.1, 1, 10),
                                      folds_local_cv = NULL,
                                      diagnostics = FALSE) {
-  Qt <- projector_components$Qt
-  R <- projector_components$R
-  RtR <- projector_components$RtR
-  tRQt <- projector_components$tRQt
+  # Extract components based on representation
+  if (projector_components$.internal_representation == "qr") {
+    qr_obj <- projector_components$qr_obj
+    R <- projector_components$R
+    RtR <- projector_components$RtR
+    # Get dimensions - works for both qr and sparseQR objects
+    n_obs <- dim(qr_obj)[1]
+  } else {
+    # Legacy path
+    Qt <- projector_components$Qt
+    R <- projector_components$R
+    RtR <- projector_components$RtR
+    tRQt <- projector_components$tRQt
+    n_obs <- ncol(Qt)
+  }
 
   if (!is.numeric(lambda_floor_global) || length(lambda_floor_global) != 1 ||
       is.na(lambda_floor_global) || lambda_floor_global < 0) {
@@ -61,7 +110,7 @@ adaptive_ridge_projector <- function(Y_sl,
     warning("Y_sl contains missing values")
     return(list(Z_sl_raw = NULL, diag_data = NULL))
   }
-  stopifnot(ncol(Qt) == nrow(Y_sl))
+  stopifnot(n_obs == nrow(Y_sl))
   if (!is.null(X_theta_for_EB_residuals)) {
     if (anyNA(X_theta_for_EB_residuals)) {
       stop("X_theta_for_EB_residuals contains missing values")
@@ -88,8 +137,30 @@ adaptive_ridge_projector <- function(Y_sl,
       warning("T_obs ≤ number of regressors; skipping EB for this search-light")
       lambda_eff <- lambda_floor_global
     } else {
-      ##  OLS, upper-triangular solve
-      beta_ols  <- backsolve(R, Qt %*% Y_sl, upper = TRUE)
+      ##  OLS with robust fallback if R is singular/ill-conditioned
+      if (projector_components$.internal_representation == "qr") {
+        # Efficient QR path: backsolve(R, t(Q)Y)
+        qty <- Matrix::qr.qty(qr_obj, Y_sl)
+        rhs <- qty[1:ncol(R), , drop = FALSE]
+        beta_ols <- tryCatch(
+          backsolve(R, rhs, upper = TRUE),
+          error = function(e) {
+            lhs <- crossprod(R)
+            diag(lhs) <- diag(lhs) + 1e-6
+            solve(lhs, t(R) %*% rhs)
+          }
+        )
+      } else {
+        rhs <- Qt %*% Y_sl
+        beta_ols <- tryCatch(
+          backsolve(R, rhs, upper = TRUE),
+          error = function(e) {
+            lhs <- crossprod(R)
+            diag(lhs) <- diag(lhs) + 1e-6
+            solve(lhs, t(R) %*% rhs)
+          }
+        )
+      }
       resid_mat <- Y_sl - X_theta_for_EB_residuals %*% beta_ols
 
       ## voxel-wise variance estimates
@@ -171,7 +242,7 @@ adaptive_ridge_projector <- function(Y_sl,
 
   # Use helper function for ridge solve
   Z_sl_raw <- tryCatch({
-    .solve_ridge_chol(R, Qt, Y_sl, lambda_eff)
+    .solve_ridge_chol(projector_components, Y_sl, lambda_eff)
   },
   error = function(e) {
     if (grepl("not positive definite", e$message)) {
@@ -186,11 +257,19 @@ adaptive_ridge_projector <- function(Y_sl,
   # Compute K_sl if needed for diagnostics
   K_sl <- NULL
   if (diagnostics) {
-    lhs <- crossprod(R)
-    diag(lhs) <- diag(lhs) + lambda_eff
-    tRQt <- t(R) %*% Qt
-    cho <- chol(lhs)
-    K_sl <- backsolve(cho, backsolve(cho, tRQt, transpose = TRUE))
+    if (projector_components$.internal_representation == "qr") {
+      # For QR representation, K_sl computation requires Qt which we avoid
+      # Store a placeholder or warning
+      warning("K_sl computation for diagnostics is not supported with qr_obj representation. ",
+              "Consider using diagnostics = FALSE for memory efficiency.")
+    } else {
+      # Legacy path - can compute K_sl
+      lhs <- crossprod(R)
+      diag(lhs) <- diag(lhs) + lambda_eff
+      tRQt <- t(R) %*% Qt
+      cho <- chol(lhs)
+      K_sl <- backsolve(cho, backsolve(cho, tRQt, transpose = TRUE))
+    }
   }
 
   diag_list <- NULL

@@ -1,0 +1,414 @@
+---
+title: Understanding fmriproj-rMVPA integration
+description: |
+  How fmriproj transparently integrates with rMVPA through S3 method dispatch and lazy projection.
+output:
+  rmarkdown::html_vignette:
+    toc: yes
+    toc_depth: 2
+vignette: |
+  %\VignetteIndexEntry{Understanding fmriproj-rMVPA integration} %\VignetteEngine{knitr::rmarkdown} %\VignetteEncoding{UTF-8}
+css: albers.css
+params:
+  family: red
+resource_files:
+- albers.css
+- albers.js
+includes:
+  in_header: |-
+    <script src="albers.js"></script>
+    <script>document.addEventListener('DOMContentLoaded',()=>document.body.classList.add('palette-red'));</script>
+
+---
+
+```{r setup, include=FALSE}
+if (requireNamespace("ggplot2", quietly = TRUE) && requireNamespace("albersdown", quietly = TRUE)) ggplot2::theme_set(albersdown::theme_albers(params$family))
+if (requireNamespace("ggplot2", quietly = TRUE) && requireNamespace("albersdown", quietly = TRUE)) ggplot2::theme_set(albersdown::theme_albers(params$family))
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment  = "#>",
+  fig.align = "center",
+  fig.retina = 2,
+  fig.width = 7,
+  fig.asp = 0.618,
+  out.width = "100%",
+  message = FALSE,
+  warning = FALSE
+)
+set.seed(123)
+options(pillar.sigfig = 7, width = 80)
+
+source("vignette_helpers.R")
+```
+
+## The integration problem {#problem}
+
+rMVPA expects trial-wise patterns (N trials × V voxels). fmriproj starts with time-series data (T timepoints × V voxels). How do we make them work together without:
+
+1. Pre-computing trial patterns for the entire brain (memory issue)
+2. Modifying rMVPA's codebase (maintenance issue)
+3. Writing custom analysis loops (user burden)
+
+**Solution**: Transparent S3 method dispatch with lazy evaluation.
+
+## Core concept: Lazy projection {#concept}
+
+The key insight is that rMVPA accesses data through generic S3 methods like `get_data()`. We create a wrapper class that:
+
+1. Holds the time-series data and projection parameters
+2. Implements `get_data.projecting_dataset()` to project on-demand
+3. Inherits from rMVPA's dataset classes so all methods still work
+
+When rMVPA calls `get_data(indices)` for a searchlight, projection happens only for those voxels. No whole-brain computation required.
+
+## Architecture diagram {#architecture}
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  User calls: run_searchlight(dataset, ...)                  │
+└─────────────────────┬───────────────────────────────────────┘
+                      │
+                      ▼
+    ┌─────────────────────────────────────────────┐
+    │  fmriproj wraps dataset as                  │
+    │  projecting_dataset                         │
+    │  (time-series + projection params)          │
+    └────────────────┬────────────────────────────┘
+                     │
+                     ▼
+    ┌────────────────────────────────────────────┐
+    │  rMVPA searchlight iterates over voxels    │
+    │  For each searchlight sphere:              │
+    │    calls get_data(voxel_indices)           │
+    └────────────────┬───────────────────────────┘
+                     │
+                     ▼
+    ┌────────────────────────────────────────────┐
+    │  S3 dispatch:                              │
+    │  get_data.projecting_dataset()             │
+    │    1. Extract Y[, voxel_indices]           │
+    │    2. Build design matrix                  │
+    │    3. Adaptive ridge projection            │
+    │    4. Collapse HRF basis                   │
+    │    5. Return trial patterns (N × |sphere|) │
+    └────────────────┬───────────────────────────┘
+                     │
+                     ▼
+    ┌────────────────────────────────────────────┐
+    │  rMVPA receives trial patterns             │
+    │  Trains classifier, computes accuracy      │
+    └────────────────────────────────────────────┘
+```
+
+## S3 method dispatch demonstration {#s3-demo}
+
+Let's see S3 dispatch in action with a minimal example:
+
+```{r s3-demo}
+library(fmriproj)
+
+# Create synthetic data
+synth <- create_synthetic_fmri(
+  n_voxels = 50,
+  n_timepoints = 150,
+  n_trials = 30,
+  TR = 2
+)
+
+# Create a projection function
+make_projector_fun <- function(event_table, TR, n_time) {
+  function(Y_subset) {
+    # Build design matrix
+    emodel <- fmridesign::event_model(
+      onset = event_table$onset,
+      duration = event_table$duration,
+      run = event_table$run,
+      hrf = fmrihrf::hrf_spmg1
+    )
+
+    design <- build_design_matrix(
+      event_model = emodel,
+      TR = TR,
+      n_time = n_time
+    )
+
+    # Build projector
+    proj <- build_projector(
+      X = design$X,
+      lambda_global = 0.1
+    )
+
+    # Project
+    projection <- adaptive_ridge_projector(
+      Y_sl = Y_subset,
+      Q_sl = proj$Q_sl,
+      R_sl = proj$R_sl,
+      lambda_global = 0.1,
+      lambda_adaptive_method = "EB"
+    )
+
+    # Collapse
+    patterns <- collapse_beta(
+      Z_sl_raw = projection$Z_sl_raw,
+      N_trials = nrow(event_table),
+      method = "rss"
+    )
+
+    patterns$beta
+  }
+}
+
+# Create the projection function
+proj_fun <- make_projector_fun(
+  event_table = synth$event_table,
+  TR = synth$TR,
+  n_time = ncol(synth$Y)
+)
+
+# Test it directly
+test_result <- proj_fun(synth$Y)
+cat("Direct projection result:", dim(test_result), "\n")
+```
+
+This projection function is what gets embedded in the `projecting_dataset` wrapper. When rMVPA calls `get_data()`, this function runs automatically.
+
+## The projecting_dataset class {#projecting-dataset}
+
+The `wrap_as_projecting_dataset()` function creates the wrapper:
+
+```{r show-wrapper, eval=FALSE}
+# Conceptual structure (simplified)
+projecting_dataset <- list(
+  Y = time_series_data,          # T × V matrix
+  projection_fun = proj_fun,      # Function shown above
+  event_table = event_table,      # Trial metadata
+  mask = spatial_mask,            # Which voxels to analyze
+  class = c("projecting_dataset", "mvpa_dataset")
+)
+
+# Key S3 method
+get_data.projecting_dataset <- function(x, indices = NULL, ...) {
+  if (is.null(indices)) {
+    # Full brain request
+    x$projection_fun(x$Y)
+  } else {
+    # Searchlight/ROI request
+    x$projection_fun(x$Y[, indices, drop = FALSE])
+  }
+}
+```
+
+From rMVPA's perspective, this is just another `mvpa_dataset`. It calls `get_data()` and receives trial patterns—it doesn't know or care that projection is happening behind the scenes.
+
+## Onset units policy {#onset-units}
+
+**Critical design decision**: How do we map trial onsets (in seconds) to timepoints (indices)?
+
+### Default behavior: Seconds
+
+By default, onsets are in **seconds from the start of each run**:
+
+```{r onset-seconds, eval=FALSE}
+event_table <- data.frame(
+  onset = c(12.5, 25.0, 37.5),  # Seconds
+  duration = c(2, 2, 2),
+  condition = c("A", "B", "A"),
+  run = c(1, 1, 1)
+)
+
+# With TR = 2, these convert to timepoints: 6, 12, 19 (rounded)
+```
+
+### Rounding behavior
+
+Conversion uses `rounding = "nearest"` by default:
+
+- `onset = 12.5, TR = 2` → timepoint 6 (12.5 / 2 = 6.25, rounds to 6)
+- `onset = 13.0, TR = 2` → timepoint 6 (13.0 / 2 = 6.5, rounds to 6)
+- `onset = 13.1, TR = 2` → timepoint 7 (13.1 / 2 = 6.55, rounds to 7)
+
+You can override with `rounding = "floor"` or `rounding = "ceil"`.
+
+### Multi-run handling
+
+Onsets reset to 0 at the start of each run:
+
+```{r multirun, eval=FALSE}
+event_table <- data.frame(
+  onset = c(10, 20, 10, 20),  # Run 1: 10, 20; Run 2: 10, 20
+  duration = 2,
+  condition = c("A", "B", "A", "B"),
+  run = c(1, 1, 2, 2)
+)
+
+# Run 1 starts at global timepoint 0
+# Run 2 starts at global timepoint 150 (if run 1 had 150 TRs)
+```
+
+### Advanced: Index-based onsets
+
+For complete control, use 0-based indices:
+
+```{r index-onsets, eval=FALSE}
+event_model <- event_model(
+  onset = c(0, 50, 100),  # Direct timepoint indices
+  onset_units = "index",  # Tells fmriproj these are indices, not seconds
+  duration = 2,
+  ...
+)
+```
+
+## Integration levels {#integration-levels}
+
+### Level 1: High-level API (recommended)
+
+Most users should use `run_searchlight()` or `run_regional()`:
+
+```{r highlevel-api, eval=FALSE}
+library(fmriproj)
+library(fmridataset)
+
+# Create dataset
+dset <- fmridataset::matrix_dataset(
+  datamat = bold_matrix,
+  TR = 2,
+  run_length = nrow(bold_matrix),
+  event_table = events
+)
+
+# Run analysis - integration is automatic
+results <- run_searchlight(
+  dset,
+  radius = 3,
+  y_formula = ~ condition,
+  block_formula = ~ run
+)
+```
+
+No need to think about projection—it just works.
+
+### Level 2: Manual wrapping
+
+For custom workflows, wrap the dataset yourself:
+
+```{r manual-wrap, eval=FALSE}
+# Create projection specification
+proj_spec <- projection_spec(
+  event_table = events,
+  TR = 2,
+  hrf_basis = fmrihrf::hrf_spmg1,
+  lambda_global = 0.1
+)
+
+# Wrap the dataset
+wrapped <- wrap_as_projecting_dataset(
+  Y = bold_matrix,
+  projection_spec = proj_spec,
+  mask = brain_mask
+)
+
+# Now use with any rMVPA function
+library(rMVPA)
+results <- mvpa_searchlight(
+  wrapped,
+  radius = 3,
+  method = sda_notune()
+)
+```
+
+### Level 3: ProjectedDataSource (advanced)
+
+For maximum control, use the R6 `ProjectedDataSource` class:
+
+```{r projected-source, eval=FALSE}
+# R6 object with full control
+data_source <- ProjectedDataSource$new(
+  Y = bold_matrix,
+  event_model = emodel,
+  TR = 2,
+  hrf_basis_func = custom_hrf,
+  lambda_global = 0.1,
+  collapse_method = "optim"
+)
+
+# Manually request data for specific voxels
+trial_patterns <- data_source$get_data(voxel_indices = 1:100)
+```
+
+## Memory efficiency: Chunking {#chunking}
+
+For large datasets, use chunked projection:
+
+```{r chunking, eval=FALSE}
+# Wrap with chunking support
+wrapped_chunked <- wrap_as_chunked_projecting_dataset(
+  Y = bold_matrix,
+  projection_spec = proj_spec,
+  mask = brain_mask,
+  chunk_size = 1000  # Process 1000 voxels at a time
+)
+
+# Recommendation system
+recommended <- recommend_chunk_size(
+  n_voxels = ncol(bold_matrix),
+  n_timepoints = nrow(bold_matrix),
+  n_trials = nrow(events),
+  available_memory_gb = 8
+)
+
+cat("Recommended chunk size:", recommended, "\n")
+```
+
+Chunking balances memory usage against computational overhead. Results are cached so repeated access to the same chunk is fast.
+
+## Design rationale {#rationale}
+
+### Why S3 dispatch?
+
+**Alternatives considered**:
+
+1. **Modify rMVPA**: Fragile, maintenance burden
+2. **Pre-compute patterns**: Memory explosion for whole-brain
+3. **Custom analysis loops**: User burden, code duplication
+
+**S3 dispatch wins** because:
+
+- Zero changes to rMVPA codebase
+- Transparent to users
+- Lazy evaluation = minimal memory
+- Full compatibility with rMVPA ecosystem
+
+### Why lazy evaluation?
+
+A whole-brain dataset with 100,000 voxels and 200 trials would require storing 200 × 100,000 = 20 million values in memory. With searchlight analysis, we typically only need ~1000 voxels at a time.
+
+Lazy projection:
+- Computes patterns only when requested
+- Memory footprint: ~1000 voxels instead of 100,000
+- Can cache hot paths for repeated access
+
+### Trade-offs
+
+**Advantages**:
+- Memory efficient
+- Flexible (easy to change projection parameters)
+- Transparent integration
+
+**Disadvantages**:
+- Repeated computation if same voxels accessed multiple times (mitigated by caching)
+- Slightly higher CPU usage (but usually I/O-bound anyway)
+- Harder to debug (projection hidden from user)
+
+## See also {#see-also}
+
+- [Getting Started](getting-started-with-fmriproj.html) - Basic projection workflow
+- [Common Workflows](common-workflows.html) - Complete searchlight and ROI examples
+- [Advanced Features](advanced-features.html) - HRF optimization and performance tuning
+- `?wrap_as_projecting_dataset` - Full API documentation
+- `?ProjectedDataSource` - R6 class reference
+
+---
+
+```{r session-info}
+sessioninfo::session_info(pkgs = "attached")
+```

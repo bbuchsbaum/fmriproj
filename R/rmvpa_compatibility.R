@@ -22,6 +22,8 @@ make_rmvpa_searchlight_fun <- function(spec,
   lambda_global <- spec$lambda_global
   collapse_method <- spec$collapse_method
   X_theta_dense <- spec$X_theta_dense
+  align_sign <- spec$align_sign %||% TRUE
+  sign_anchor <- spec$sign_anchor %||% "canonical"
 
   function(Y_sl, coords = NULL, indices = NULL, ...) {
     # Core projection pipeline
@@ -37,7 +39,9 @@ make_rmvpa_searchlight_fun <- function(spec,
       proj_res$Z_sl_raw,
       N_trials,
       K_hrf,
-      method = collapse_method
+      method = collapse_method,
+      align_sign = align_sign,
+      sign_anchor = sign_anchor
     )
     
     # Return in requested format
@@ -90,7 +94,14 @@ as_mvpa_dataset <- function(Y, event_model, mask = NULL, ...) {
   
   # Apply projection
   proj_res <- adaptive_ridge_projector(Y, proj_comp)
-  coll_res <- collapse_beta(proj_res$Z_sl_raw, N_trials, K_hrf)
+  coll_res <- collapse_beta(
+    proj_res$Z_sl_raw,
+    N_trials,
+    K_hrf,
+    method = "pc",
+    align_sign = TRUE,
+    sign_anchor = "canonical"
+  )
   
   # Create rMVPA-compatible structure
   structure(

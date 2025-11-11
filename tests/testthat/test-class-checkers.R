@@ -7,7 +7,8 @@ test_that("is.fr_design_matrix identifies objects", {
 })
 
 test_that("is.fr_projector identifies objects", {
-  proj <- fr_projector(matrix(1, 1, 1), matrix(1, 1, 1))
+  # Use legacy format with explicit argument names
+  proj <- suppressWarnings(fr_projector(Qt = matrix(1, 1, 1), R = matrix(1, 1, 1)))
   expect_true(is.fr_projector(proj))
   expect_false(is.fr_projector(list()))
 })

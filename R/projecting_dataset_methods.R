@@ -42,12 +42,17 @@ get_data.projecting_dataset <- function(x, indices = NULL, ...) {
 #' @param x A projecting_dataset object
 #' @param indices List of index vectors, one per ROI
 #' @param ... Additional arguments (ignored)
-#' @return List of projected data matrices, one per ROI
+#' @return Tibble with a `sample` column of data_sample objects and an `.id` column
 #' @export
 get_samples.projecting_dataset <- function(x, indices, ...) {
-  lapply(indices, function(idx) {
-    x$get_data(idx)
+  # Build data_sample objects so rMVPA can call extract_roi/as_roi
+  samples <- lapply(indices, function(vox) {
+    structure(list(data = x, vox = vox), class = "data_sample")
   })
+  n <- length(samples)
+  width <- max(2, nchar(n))
+  ids <- sprintf(paste0("%0", width, "d"), seq_len(n))
+  tibble::tibble(sample = samples, .id = ids)
 }
 
 #' Extract a single data sample from a projecting_dataset
@@ -55,10 +60,10 @@ get_samples.projecting_dataset <- function(x, indices, ...) {
 #' @param x A projecting_dataset object
 #' @param indices Voxel indices for the sample
 #' @param ... Additional arguments (ignored)
-#' @return Projected data matrix for the specified voxels
+#' @return A `data_sample` object referencing `x` and the voxel spec
 #' @export
 data_sample.projecting_dataset <- function(x, indices, ...) {
-  x$get_data(indices)
+  structure(list(data = x, vox = indices), class = "data_sample")
 }
 
 #' Get mask from a projecting_dataset
@@ -153,4 +158,32 @@ print.projecting_dataset <- function(x, ...) {
 #' @export
 is.projecting_dataset <- function(x) {
   inherits(x, "projecting_dataset")
+}
+
+#' Get searchlight for projecting_dataset
+#'
+#' Ensure the order of searchlight windows aligns with which(mask > 0)
+#' so that rMVPA's center ids correspond to the ROIs returned here.
+#'
+#' @param obj A projecting_dataset
+#' @param type "standard" or "randomized" (only "standard" implemented)
+#' @param radius Searchlight radius
+#' @param ... Ignored
+#' @export
+get_searchlight.projecting_dataset <- function(obj, type = c("standard", "randomized"), radius = 8, ...) {
+  type <- match.arg(type)
+  if (type != "standard") {
+    # Fallback to default for randomized; tests use standard
+    return(rMVPA::get_searchlight(obj$original, type = type, radius = radius, ...))
+  }
+  mask <- obj$mask
+  if (!inherits(mask, "NeuroVol")) {
+    stop("projecting_dataset mask must be a NeuroVol for volumetric searchlight")
+  }
+  ids <- which(mask[] > 0)
+  f <- function(k) {
+    ctr <- neuroim2::index_to_grid(mask, ids[k])
+    neuroim2::spherical_roi(mask, ctr, radius = radius, nonzero = TRUE)
+  }
+  deflist::deflist(f, length(ids))
 }
